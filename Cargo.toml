@@ -1,0 +1,55 @@
+[package]
+authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
+edition = "2021"
+readme = "README.md"
+name = "blackpill-usb-pwdstore"
+version = "0.1.0"
+
+[features]
+default = ["black_pill"]
+black_pill = ["stm32f4xx-hal"]
+
+[dependencies.stm32f4xx-hal]
+optional = true
+version = "0"
+features = ["rt", "stm32f411", "usb_fs"]
+git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
+
+[dependencies]
+cortex-m = "*"
+cortex-m-rt = "*"
+cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic.git" }
+systick-monotonic = { git = "https://github.com/rtic-rs/systick-monotonic.git" }
+cortex-m-semihosting = "*"
+alloc-cortex-m = "*"
+stm32f4 = "*"
+embedded-hal = "*"
+stm32-usbd = "*"
+usb-device = "*"
+usbd-serial = "*"
+panic-halt = "*"
+spi-memory = { git = "https://github.com/sjm42/spi-memory.git" }
+heapless = "*"
+rand = { version = "*", default-features = false, features = ["std_rng"] }
+fugit = "*"
+privatebox = "*"
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "blackpill-usb-pwdstore"
+test = false
+bench = false
+
+# identical profiles haha
+
+[profile.release]
+opt-level = 'z'
+codegen-units = 1 # better optimizations
+debug = true      # symbols are nice and they don't increase the size on Flash
+lto = true        # better optimizations
+
+[profile.dev]
+opt-level = 'z'
+codegen-units = 1 # better optimizations
+debug = true      # symbols are nice and they don't increase the size on Flash
+lto = true        # better optimizations

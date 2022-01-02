@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+#set -x
+
+usage()
+{
+    echo "Usage: $0 <build | clippy | flash | dfu>"
+    exit 1
+}
+
+tgt="thumbv7em-none-eabihf"
+chip="STM32F411CEUx"
+flags="--target $tgt"
+
+case "$1" in
+b*)
+    # release build
+    set -x
+    cargo build $flags --release
+    ;;
+c*)
+    set -x
+    cargo clippy $flags
+    ;;
+g*)
+    # debug build
+    set -x
+    cargo build $flags
+    ;;
+f*)
+    set -x
+    cargo flash $flags --release --chip $chip
+    ;;
+d)
+    set -x
+    cargo objcopy $flags --release -- -O binary target/out.bin
+    set +x
+    echo Boot the card in DFU mode and press Enter.
+    read
+    set -x
+    dfu-util -a0 -s 0x08000000 -D target/out.bin
+    set +x
+    ;;
+*)
+    usage
+    ;;
+esac
+exit 0
+# EOF

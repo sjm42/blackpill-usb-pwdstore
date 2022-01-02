@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Cortex Debug",
+            "cwd": "${workspaceRoot}",
+            "executable": "${workspaceRoot}/target/thumbv7em-none-eabihf/debug/blackpill-usb-flash",
+            "request": "launch",
+            "type": "cortex-debug",
+            "BMPGDBSerialPort": "/dev/ttyBmpGdb",
+            "device": "STM32F411CEU6",
+            "svdFile": "${workspaceRoot}/.vscode/STM32F411.svd",
+            "servertype": "bmp",
+        },
+    ],
+}
