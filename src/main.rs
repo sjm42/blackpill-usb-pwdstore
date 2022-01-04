@@ -3,8 +3,9 @@
 #![no_std]
 #![no_main]
 #![allow(non_snake_case)]
-// #![feature(associated_type_bounds)]
+#![allow(dead_code)]
 #![feature(alloc_error_handler)]
+// #![feature(associated_type_bounds)]
 // #![deny(warnings)]
 
 extern crate alloc;
@@ -37,7 +38,7 @@ mod app {
     use stm32f4xx_hal as hal;
 
     use hal::otg_fs::{UsbBus, UsbBusType, USB};
-    use hal::pac::SPI1;
+    use hal::pac::{SPI1, USART1};
     use hal::watchdog::IndependentWatchdog;
     use hal::{delay::Delay, gpio::*, prelude::*, serial, spi::*};
     // use embedded_hal::digital::v2::OutputPin;
@@ -45,16 +46,25 @@ mod app {
     #[monotonic(binds=SysTick, default=true)]
     type SysMono = Systick<10_000>; // 10 kHz / 100 µs granularity
 
+    type UsbdSerial = usbd_serial::SerialPort<'static, UsbBusType>;
+
     pub struct UsbSerial {
-        serial: usbd_serial::SerialPort<'static, UsbBusType>,
+        serial: UsbdSerial,
     }
     impl fmt::Write for UsbSerial {
         fn write_str(&mut self, s: &str) -> fmt::Result {
             s.bytes()
-                .try_for_each(|c| self.serial.write(&[c]).map(|_| ()))
+                .try_for_each(|c| {
+                    if c == b'\n' {
+                        self.serial.write(&[b'\r'])?;
+                    }
+                    self.serial.write(&[c]).map(|_| ())
+                })
                 .map_err(|_| fmt::Error)
         }
     }
+
+    type SerialTx = serial::Tx<USART1, u8>;
 
     type MyFlash = Flash<
         Spi<
@@ -72,7 +82,8 @@ mod app {
     #[shared]
     struct Shared {
         usb_dev: UsbDevice<'static, UsbBusType>,
-        serial: UsbSerial,
+        runner: menu::Runner<'static, UsbSerial>,
+        ser_tx: SerialTx,
         flash: MyFlash,
         addr: u32,
         pin_button: ErasedPin<Input<PullUp>>,
@@ -86,7 +97,16 @@ mod app {
         watchdog: IndependentWatchdog,
     }
 
+    const FLASH_SZ: u32 = 8 * 1024 * 1024;
+    const BLOCK_SZ: u32 = 4096;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024];
+
+    const ROOT_MENU: menu::Menu<UsbSerial> = menu::Menu {
+        label: "root",
+        entry: None,
+        exit: None,
+        items: &[],
+    };
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -211,6 +231,7 @@ mod app {
         }
 
         let serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+        let usb_serial = UsbSerial { serial };
         let usb_dev = UsbDeviceBuilder::new(
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
@@ -225,6 +246,9 @@ mod app {
         let jedec_id = flash.read_jedec_id().unwrap();
         write!(ser_tx, "Flash jedec id: {:?}\r\n", jedec_id).ok();
 
+        static mut MENU_BUF: [u8; 64] = [0u8; 64];
+        let runner = menu::Runner::new(&ROOT_MENU, unsafe { &mut MENU_BUF }, usb_serial);
+
         // Start the hardware watchdog
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
         watchdog.start(500.ms());
@@ -235,7 +259,8 @@ mod app {
         (
             Shared {
                 usb_dev,
-                serial: UsbSerial { serial },
+                runner,
+                ser_tx,
                 flash,
                 addr: 0,
                 pin_button,
@@ -288,21 +313,21 @@ mod app {
         });
     }
 
-    #[task(priority=2, shared=[flash, addr, serial])]
+    #[task(priority=2, shared=[flash, addr, ser_tx])]
     fn dump_flash(cx: dump_flash::Context) {
         let mut buf = [0u8; 256];
         let mut flash = cx.shared.flash;
         let mut addr = cx.shared.addr;
-        let mut serial = cx.shared.serial;
-        (&mut flash, &mut addr, &mut serial).lock(|flash, addr, serial| {
-            write!(serial, "\r\nFlash read dump (0x{:06x}):\r\n", *addr).ok();
+        let mut ser_tx = cx.shared.ser_tx;
+        (&mut flash, &mut addr, &mut ser_tx).lock(|flash, addr, ser_tx| {
+            write!(ser_tx, "\r\nFlash read dump (0x{:06x}):\r\n", *addr).ok();
             flash.read(*addr, &mut buf).unwrap();
-            hex_dump(serial, &buf);
+            hex_dump(ser_tx, &buf);
         });
     }
 
     const ROW_SZ: usize = 32;
-    fn hex_dump(serial: &mut UsbSerial, buf: &[u8]) {
+    fn hex_dump(serial: &mut SerialTx, buf: &[u8]) {
         let mut offset: usize = 0;
         let len = buf.len();
         let mut stop = false;
@@ -321,7 +346,7 @@ mod app {
         }
     }
 
-    #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, serial])]
+    #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, ser_tx])]
     fn button(cx: button::Context) {
         let mut button = cx.shared.pin_button;
         (&mut button).lock(|button| button.clear_interrupt_pending_bit());
@@ -334,9 +359,9 @@ mod app {
             *button_down = true;
         });
 
-        let mut serial = cx.shared.serial;
-        (&mut serial).lock(|serial| {
-            write!(serial, "\r\n# button #\r\n").ok();
+        let mut ser_tx = cx.shared.ser_tx;
+        (&mut ser_tx).lock(|ser_tx| {
+            write!(ser_tx, "\r\n# button #\r\n").ok();
         });
         led_blink::spawn(500).ok();
 
@@ -353,21 +378,21 @@ mod app {
         let cont = pb.encrypt(&msg, &header, &metadata).unwrap();
         let (dec, _auth_h) = pb.decrypt(&cont, &metadata).unwrap();
 
-        (&mut serial).lock(|serial| {
-            write!(serial, "key:\r\n").ok();
-            hex_dump(serial, &key);
+        (&mut ser_tx).lock(|ser_tx| {
+            write!(ser_tx, "key:\r\n").ok();
+            hex_dump(ser_tx, &key);
 
-            write!(serial, "msg:\r\n").ok();
-            hex_dump(serial, &msg);
+            write!(ser_tx, "msg:\r\n").ok();
+            hex_dump(ser_tx, &msg);
 
-            write!(serial, "container:\r\n").ok();
-            hex_dump(serial, cont.as_slice());
+            write!(ser_tx, "container:\r\n").ok();
+            hex_dump(ser_tx, cont.as_slice());
 
-            write!(serial, "dec:\r\n").ok();
-            hex_dump(serial, dec.as_slice());
+            write!(ser_tx, "dec:\r\n").ok();
+            hex_dump(ser_tx, dec.as_slice());
         });
 
-        // "debounce" (disable) button for 100ms
+        // "debounce" (disable) button for 500ms
         button_up::spawn_after(500u64.millis()).ok();
     }
 
@@ -379,20 +404,20 @@ mod app {
         });
     }
 
-    #[task(priority=2, shared=[flash, addr, serial])]
+    #[task(priority=2, shared=[flash, addr, ser_tx])]
     fn erase_flash(cx: erase_flash::Context) {
         let mut flash = cx.shared.flash;
         let mut addr = cx.shared.addr;
-        let mut serial = cx.shared.serial;
-        (&mut flash, &mut addr, &mut serial).lock(|flash, addr, serial| {
+        let mut ser_tx = cx.shared.ser_tx;
+        (&mut flash, &mut addr, &mut ser_tx).lock(|flash, addr, ser_tx| {
             let jedec_id = flash.read_jedec_id().unwrap();
-            write!(serial, "\r\nFlash jedec id: {:?}\r\n", jedec_id).ok();
-            write!(serial, "### Flash erase (0x{:06x})...\r\n\n", *addr).ok();
+            write!(ser_tx, "\r\nFlash jedec id: {:?}\r\n", jedec_id).ok();
+            write!(ser_tx, "### Flash erase (0x{:06x})...\r\n\n", *addr).ok();
             flash.erase_sectors(*addr, 1).ok();
         });
     }
 
-    #[task(priority=2, shared=[flash, addr, serial])]
+    #[task(priority=2, shared=[flash, addr, ser_tx])]
     fn write_flash(cx: write_flash::Context) {
         let seed = monotonics::now().ticks();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
@@ -401,85 +426,58 @@ mod app {
 
         let mut flash = cx.shared.flash;
         let mut addr = cx.shared.addr;
-        let mut serial = cx.shared.serial;
-        (&mut flash, &mut addr, &mut serial).lock(|flash, addr, serial| {
-            write!(serial, "\r\nRNG seed: {}\r\n", seed).ok();
-            write!(serial, "Write buffer dump:\r\n").ok();
-            hex_dump(serial, &buf);
+        let mut ser_tx = cx.shared.ser_tx;
+        (&mut flash, &mut addr, &mut ser_tx).lock(|flash, addr, ser_tx| {
+            write!(ser_tx, "\r\nRNG seed: {}\r\n", seed).ok();
+            write!(ser_tx, "Write buffer dump:\r\n").ok();
+            hex_dump(ser_tx, &buf);
             let jedec_id = flash.read_jedec_id().unwrap();
-            write!(serial, "Flash jedec id: {:?}\r\n", jedec_id).ok();
-            write!(serial, "### Flash write (0x{:06x})...\r\n", *addr).ok();
+            write!(ser_tx, "Flash jedec id: {:?}\r\n", jedec_id).ok();
+            write!(ser_tx, "### Flash write (0x{:06x})...\r\n", *addr).ok();
             let w = flash.write_bytes(*addr, &mut buf).unwrap_or(0);
-            write!(serial, "Wait cycles: {}\r\n\n", w).ok();
+            write!(ser_tx, "Wait cycles: {}\r\n\n", w).ok();
         });
     }
 
-    #[task(priority=2, shared=[addr, serial])]
+    #[task(priority=2, shared=[addr, ser_tx])]
     fn new_addr(cx: new_addr::Context) {
         let seed = monotonics::now().ticks();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let addr_rand: u32 = rng.gen();
 
         let mut addr = cx.shared.addr;
-        let mut serial = cx.shared.serial;
-        (&mut addr, &mut serial).lock(|addr, serial| {
-            write!(serial, "\r\nRNG seed: {}\r\n", seed).ok();
-            write!(serial, "Old addr: {:06x}\r\n", *addr).ok();
+        let mut ser_tx = cx.shared.ser_tx;
+        (&mut addr, &mut ser_tx).lock(|addr, ser_tx| {
+            write!(ser_tx, "\r\nRNG seed: {}\r\n", seed).ok();
+            write!(ser_tx, "Old addr: {:06x}\r\n", *addr).ok();
             *addr = addr_rand & 0xffff_f000;
-            write!(serial, "New addr: {:06x}\r\n\n", *addr).ok();
+            write!(ser_tx, "New addr: {:06x}\r\n\n", *addr).ok();
         });
     }
 
-    #[task(priority=5, binds=OTG_FS, shared=[usb_dev, serial])]
+    #[task(priority=5, binds=OTG_FS, shared=[usb_dev, runner])]
     fn usb_fs(cx: usb_fs::Context) {
         let mut usb_dev = cx.shared.usb_dev;
-        let mut serial = cx.shared.serial;
+        let mut runner = cx.shared.runner;
 
-        (&mut usb_dev, &mut serial).lock(|usb_dev, serial| {
-            usb_poll(usb_dev, &mut serial.serial);
-        });
-        led_blink::spawn(10).ok();
-    }
-
-    fn usb_poll<B: usb_device::bus::UsbBus>(
-        usb_dev: &mut usb_device::prelude::UsbDevice<'static, B>,
-        serial: &mut usbd_serial::SerialPort<'static, B>,
-    ) {
-        if !usb_dev.poll(&mut [serial]) {
-            return;
-        }
-
-        let mut buf = [0u8; 4];
-        if let Ok(count) = serial.read(&mut buf) {
-            if count < 1 {
+        (&mut usb_dev, &mut runner).lock(|usb_dev, runner| {
+            let serial = &mut runner.context.serial;
+            if !usb_dev.poll(&mut [serial]) {
                 return;
             }
-            for c in buf[0..count].iter() {
-                let x;
-                if *c == b'?' {
-                    x = *c;
-                    dump_flash::spawn().ok();
-                } else if *c == b'0' {
-                    x = *c;
-                    erase_flash::spawn().ok();
-                } else if *c == b'!' {
-                    x = *c;
-                    write_flash::spawn().ok();
-                } else if *c == b'#' {
-                    x = *c;
-                    new_addr::spawn().ok();
-                } else if *c >= 0x41 && *c <= 0x5A {
-                    // uppercase aka A-Z
-                    x = b'X';
-                } else if *c >= 0x61 && *c <= 0x7A {
-                    // lowercase aka a-z
-                    x = b'x';
-                } else {
-                    x = *c;
+
+            let mut buf = [0u8; 4];
+            if let Ok(count) = serial.read(&mut buf) {
+                if count < 1 {
+                    return;
                 }
-                serial.write(&[x]).ok();
+
+                for c in buf[0..count].iter() {
+                    runner.input_byte(*c);
+                }
             }
-        }
+        });
+        led_blink::spawn(10).ok();
     }
 }
 // EOF

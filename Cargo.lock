@@ -105,13 +105,13 @@ name = "blackpill-usb-pwdstore"
 version = "0.1.0"
 dependencies = [
  "alloc-cortex-m",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "cortex-m-rt",
  "cortex-m-rtic",
  "cortex-m-semihosting",
  "embedded-hal",
  "fugit",
- "heapless",
+ "menu",
  "panic-halt",
  "privatebox",
  "rand",
@@ -195,15 +195,15 @@ dependencies = [
  "aligned",
  "bare-metal 0.2.5",
  "bitfield",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "volatile-register",
 ]
 
 [[package]]
 name = "cortex-m"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ac919ef424449ec8c08d515590ce15d9262c0ca5f0da5b0c901e971a3b783b3"
+checksum = "37ff967e867ca14eba0c34ac25cd71ea98c678e741e3915d923999bb2fe7c826"
 dependencies = [
  "bare-metal 0.2.5",
  "bitfield",
@@ -234,10 +234,10 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#f9902681474a8d203a5ba4209d788c30b27f5db5"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#8cff6827d147d46760095f63a4d84e9ca9727672"
 dependencies = [
  "bare-metal 1.0.0",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "cortex-m-rtic-macros",
  "heapless",
  "rtic-core",
@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic-macros"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#f9902681474a8d203a5ba4209d788c30b27f5db5"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#8cff6827d147d46760095f63a4d84e9ca9727672"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -263,7 +263,7 @@ version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bffa6c1454368a6aa4811ae60964c38e6996d397ff8095a8b9211b1c1f749bc"
 dependencies = [
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
 ]
 
 [[package]]
@@ -283,7 +283,7 @@ checksum = "01e191a5a6f6edad9b679777ef6b6c0f2bdd4a333f2ecb8f61c3e28109a03d70"
 dependencies = [
  "bare-metal 1.0.0",
  "cfg-if",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "riscv",
 ]
 
@@ -421,6 +421,12 @@ name = "memchr"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
+
+[[package]]
+name = "menu"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b03d7f798bfe97329ad6df937951142eec93886b37d87010502dd25e8cc75fd5"
 
 [[package]]
 name = "nb"
@@ -712,7 +718,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6c94998f166d66b210a164648a0b7866428d8f1e0740bf8a4c5edd89d4750c1"
 dependencies = [
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "usb-device",
  "vcell",
 ]
@@ -724,7 +730,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "379f030a0586d0aa3574cb6497392142ddf125c8146b7b580b4b6b46db9d7dc9"
 dependencies = [
  "bare-metal 1.0.0",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "cortex-m-rt",
  "vcell",
 ]
@@ -736,7 +742,7 @@ source = "git+https://github.com/stm32-rs/stm32f4xx-hal.git#d96137099d47112bf891
 dependencies = [
  "bare-metal 1.0.0",
  "cast",
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "cortex-m-rt",
  "embedded-dma",
  "embedded-hal",
@@ -780,9 +786,9 @@ dependencies = [
 [[package]]
 name = "systick-monotonic"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/systick-monotonic.git#5fde42cb88a1b4111893f5032b822bfccc135963"
+source = "git+https://github.com/rtic-rs/systick-monotonic.git#f0baf434eec7630768b0a12208d38c08b2ce9a73"
 dependencies = [
- "cortex-m 0.7.3",
+ "cortex-m 0.7.4",
  "fugit",
  "rtic-monotonic",
 ]
