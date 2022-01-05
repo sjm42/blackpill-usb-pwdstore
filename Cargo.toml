@@ -21,7 +21,8 @@ cortex-m-rt = "*"
 cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic.git" }
 systick-monotonic = { git = "https://github.com/rtic-rs/systick-monotonic.git" }
 cortex-m-semihosting = "*"
-alloc-cortex-m = "0.4"
+# alloc-cortex-m = "0.4"
+alloc-cortex-m = { git = "https://github.com/rust-embedded/alloc-cortex-m.git" }
 stm32f4 = "*"
 embedded-hal = "*"
 stm32-usbd = "*"

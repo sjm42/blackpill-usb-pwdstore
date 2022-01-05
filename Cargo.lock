@@ -8,7 +8,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b613b8e1e3cf911a086f53f03bf286f52fd7a7258e4fa606f0ef220d39d8877"
 dependencies = [
- "generic-array 0.14.4",
+ "generic-array 0.14.5",
 ]
 
 [[package]]
@@ -31,11 +31,10 @@ dependencies = [
 
 [[package]]
 name = "alloc-cortex-m"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a67ad0fe14be887ed94e5722d14861c1877b128edbda2dd372e64d5243d614ae"
+version = "0.4.2"
+source = "git+https://github.com/rust-embedded/alloc-cortex-m.git#caa821e1fd5a706c776c9bf2b38619f2eaee5518"
 dependencies = [
- "cortex-m 0.6.7",
+ "cortex-m 0.7.4",
  "linked_list_allocator",
 ]
 
@@ -47,7 +46,7 @@ checksum = "45403b49e3954a4b8428a0ac21a4b7afadccf92bfd96273f1a58cd4812496ae0"
 dependencies = [
  "generic-array 0.12.4",
  "generic-array 0.13.3",
- "generic-array 0.14.4",
+ "generic-array 0.14.5",
  "stable_deref_trait",
 ]
 
@@ -183,7 +182,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ee52072ec15386f770805afd189a01c8841be8696bed250fa2f13c4c0d6dfb7"
 dependencies = [
- "generic-array 0.14.4",
+ "generic-array 0.14.5",
 ]
 
 [[package]]
@@ -234,7 +233,7 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#8cff6827d147d46760095f63a4d84e9ca9727672"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#dcba1a55ddf27995da61253ec79f8c915bb3da38"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m 0.7.4",
@@ -248,7 +247,7 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic-macros"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#8cff6827d147d46760095f63a4d84e9ca9727672"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#dcba1a55ddf27995da61253ec79f8c915bb3da38"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -344,9 +343,9 @@ dependencies = [
 
 [[package]]
 name = "generic-array"
-version = "0.14.4"
+version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501466ecc8a30d1d3b7fc9229b122b2ce8ed6e9d9223f1138d4babb253e51817"
+checksum = "fd48d33ec7f05fbfa152300fdad764757cbded343c1aa1cff2fbaf4134851803"
 dependencies = [
  "typenum",
  "version_check",
@@ -811,7 +810,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f214e8f697e925001e66ec2c6e37a4ef93f0f78c2eed7814394e10c62025b05"
 dependencies = [
- "generic-array 0.14.4",
+ "generic-array 0.14.5",
  "subtle",
 ]
 
