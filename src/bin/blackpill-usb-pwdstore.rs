@@ -436,7 +436,8 @@ mod app {
                 help: Some("Initialize password store"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_init,
-                    parameters: &[menu::Parameter::Mandatory {
+                    parameters: &[
+                        menu::Parameter::Mandatory {
                         parameter_name: "master_pwd",
                         help: Some("Master password"),
                     }],
@@ -448,7 +449,8 @@ mod app {
                 help: Some("Open password store"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_open,
-                    parameters: &[menu::Parameter::Mandatory {
+                    parameters: &[
+                        menu::Parameter::Mandatory {
                         parameter_name: "master_pwd",
                         help: Some("Master password"),
                     }],
@@ -460,7 +462,12 @@ mod app {
                 help: Some("Store secret to flash"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_store,
-                    parameters: &[menu::Parameter::Mandatory {
+                    parameters: &[
+                        menu::Parameter::Mandatory {
+                        parameter_name: "loc",
+                        help: Some("Location to use, 1-2047 (0x001-0x7FF)"),
+                    },
+                        menu::Parameter::Mandatory {
                         parameter_name: "secret",
                         help: Some("Secret to store on flash"),
                     }],
@@ -472,7 +479,11 @@ mod app {
                 help: Some("Fetch secret from flash"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_fetch,
-                    parameters: &[],
+                    parameters: &[
+                        menu::Parameter::Mandatory {
+                        parameter_name: "loc",
+                        help: Some("Location to use, 1-2047 (0x001-0x7FF)"),
+                    }],
                 },
             },
 
@@ -504,7 +515,6 @@ mod app {
                                             parameter_name: "addr",
                                             help: Some("Start address of flash read"),
                                         },
-
                                         menu::Parameter::Optional {
                                             parameter_name: "len",
                                             help: Some("Read length in bytes"),
@@ -523,12 +533,10 @@ mod app {
                                             parameter_name: "addr",
                                             help: Some("Start address of flash write"),
                                         },
-
                                         menu::Parameter::Optional {
                                             parameter_name: "len",
                                             help: Some("Write length in bytes"),
                                         },
-
                                         menu::Parameter::Optional {
                                             parameter_name: "data",
                                             help: Some("Fill byte, default is randomized"),
@@ -547,7 +555,6 @@ mod app {
                                             parameter_name: "addr",
                                             help: Some("Address of flash erase - must be multiple of 4KB (0x1000)"),
                                         },
-
                                         menu::Parameter::Optional {
                                             parameter_name: "len",
                                             help: Some("Length of flash erase - must be multiple of 4KB (0x1000)"),
@@ -592,20 +599,62 @@ mod app {
         args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
+        let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
+            if let Some(a) = parse_num(ctx, aa) {
+                a
+            } else {
+                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
+                return;
+            }
+        } else {
+            write!(ctx, "Location not given.\r\n").ok();
+            return;
+        };
+        if !(1..=0x7FF).contains(&loc) {
+            write!(
+                ctx,
+                "Error: location {} (0x{:x}) is not between 1-2047.\r\n",
+                loc, loc
+            )
+            .ok();
+            return;
+        }
+
         if let Ok(Some(secret)) = menu::argument_finder(item, args, "secret") {
             let pws = &mut ctx.pwd_store;
-            pws.store(&mut ctx.serial, secret, monotonics::now().ticks());
+            pws.store(&mut ctx.serial, loc, secret);
         }
     }
 
     fn cmd_fetch(
         _menu: &menu::Menu<MyMenuCtx>,
-        _item: &menu::Item<MyMenuCtx>,
-        _args: &[&str],
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
+        let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
+            if let Some(a) = parse_num(ctx, aa) {
+                a
+            } else {
+                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
+                return;
+            }
+        } else {
+            write!(ctx, "Location not given.\r\n").ok();
+            return;
+        };
+        if !(1..=0x7FF).contains(&loc) {
+            write!(
+                ctx,
+                "Error: location {} (0x{:x}) is not between 1-2047.\r\n",
+                loc, loc
+            )
+            .ok();
+            return;
+        }
+
         let pws = &mut ctx.pwd_store;
-        pws.fetch(&mut ctx.serial);
+        pws.fetch(&mut ctx.serial, loc);
     }
 
     fn cmd_scan(

@@ -33,13 +33,10 @@ type MyFlash = Flash<
     ErasedPin<Output<PushPull>>,
 >;
 
-const KEY: [u8; 32] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-    0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf1,
-];
-const ADDR: u32 = 0x042000;
-const ADDR_MASTER_KEY: u32 = 0x000000;
 const FLASH_BLOCK_SIZE: usize = 4096;
+const ADDR_MASTER_KEY: u32 = 0x000000;
+const ADDR_MIN: u32 = (FLASH_BLOCK_SIZE * 0x0001) as u32;
+const ADDR_MAX: u32 = (FLASH_BLOCK_SIZE * 0x07FF) as u32;
 const PWD_MAX_LEN: usize = FLASH_BLOCK_SIZE - 2;
 
 // make it exactly the block size
@@ -230,14 +227,26 @@ impl PwdStore {
         .ok();
     }
 
-    pub fn store<D>(&mut self, debug: &mut D, pwd: &str, seed: u64)
+    pub fn store<D>(&mut self, debug: &mut D, loc: usize, pwd: &str)
     where
         D: Sized + fmt::Write,
     {
-        let rng = StdRng::seed_from_u64(seed);
+        let addr = (FLASH_BLOCK_SIZE * loc) as u32;
+        if !(ADDR_MIN..=ADDR_MAX).contains(&addr) {
+            write!(debug, "Error: illegal location.\r\n").ok();
+            return;
+        }
+
+        let pbox = match &mut self.pbox {
+            None => {
+                write!(debug, "Error: password store is not open.\r\n").ok();
+                return;
+            }
+            Some(pb) => pb,
+        };
+
         // encrypt
-        let mut pb = PrivateBox::new(&KEY, rng);
-        let cont = pb.encrypt(pwd.as_bytes(), &[], &[]).unwrap();
+        let cont = pbox.encrypt(pwd.as_bytes(), &[], &[]).unwrap();
 
         write!(debug, "Encrypted into {} bytes:\r\n", cont.len()).ok();
         hex_dump(debug, 0, &cont);
@@ -257,17 +266,31 @@ impl PwdStore {
         let mut flash_buf = [0; FLASH_BLOCK_SIZE];
         flash_buf.copy_from_slice(pwd_b);
 
-        self.flash.erase_sectors(ADDR, 1).ok();
-        self.flash.write_bytes(ADDR, &mut flash_buf).ok();
+        self.flash.erase_sectors(addr, 1).ok();
+        self.flash.write_bytes(addr, &mut flash_buf).ok();
     }
 
-    pub fn fetch<D>(&mut self, debug: &mut D)
+    pub fn fetch<D>(&mut self, debug: &mut D, loc: usize)
     where
         D: Sized + fmt::Write,
     {
+        let addr = (FLASH_BLOCK_SIZE * loc) as u32;
+        if !(ADDR_MIN..=ADDR_MAX).contains(&addr) {
+            write!(debug, "Error: illegal location.\r\n").ok();
+            return;
+        }
+
+        let pbox = match &mut self.pbox {
+            None => {
+                write!(debug, "Error: password store is not open.\r\n").ok();
+                return;
+            }
+            Some(pb) => pb,
+        };
+
         let mut pwd_buf = PwdRepr::new(&[]);
         write!(debug, "Reading into PwdRepr...\r\n",).ok();
-        self.flash.read(ADDR, pwd_buf.bytes_mut()).ok();
+        self.flash.read(addr, pwd_buf.bytes_mut()).ok();
 
         write!(
             debug,
@@ -285,13 +308,9 @@ impl PwdStore {
         };
         hex_dump(debug, 0, pwd_crypted);
 
-        // we are not encrypting, so shitty seeding is ok
-        let rng = StdRng::seed_from_u64(0);
-        let pb = PrivateBox::new(&KEY, rng);
-
         // decrypt it
         let metadata = [];
-        match pb.decrypt(pwd_crypted, &metadata) {
+        match pbox.decrypt(pwd_crypted, &metadata) {
             Ok((dec, _auth_h)) => {
                 let secret = String::from_utf8_lossy(&dec);
                 write!(debug, "Decrypted data: \"{}\"\r\n", secret.as_ref()).ok();
