@@ -5,10 +5,12 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![feature(alloc_error_handler)]
-// #![feature(associated_type_bounds)]
+#![feature(associated_type_bounds)]
 // #![deny(warnings)]
 
 extern crate alloc;
+extern crate no_std_compat as std;
+use std::prelude::v1::*;
 
 use alloc_cortex_m::CortexMHeap;
 use core::alloc::Layout;
@@ -26,7 +28,8 @@ fn oom(_: Layout) -> ! {
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true,
     dispatchers = [DMA2_STREAM2, DMA2_STREAM3, DMA2_STREAM4, DMA2_STREAM5, DMA2_STREAM6, DMA2_STREAM7])]
 mod app {
-    // use alloc::vec::Vec;
+    use blackpill_usb_pwdstore::*;
+
     use core::fmt::{self, Write};
     use cortex_m::asm;
     use privatebox::PrivateBox;
@@ -39,37 +42,44 @@ mod app {
     use stm32f4xx_hal as hal;
 
     use hal::otg_fs::{UsbBus, UsbBusType, USB};
-    use hal::pac::{SPI1, USART1};
+    use hal::pac::USART1;
     use hal::watchdog::IndependentWatchdog;
     use hal::{delay::Delay, gpio::*, prelude::*, serial, spi::*};
     // use embedded_hal::digital::v2::OutputPin;
+
+    const FLASH_SIZE: usize = 8 * 1024 * 1024; // 8 MB
+    const SECT_SIZE: usize = 4 * 1024; // 4 KB
 
     #[monotonic(binds=SysTick, default=true)]
     type SysMono = Systick<10_000>; // 10 kHz / 100 µs granularity
 
     type SerialTx = serial::Tx<USART1, u8>;
 
-    type MyFlash = Flash<
-        Spi<
-            SPI1,
-            (
-                Pin<Alternate<PushPull, 5>, 'A', 5>,
-                Pin<Alternate<PushPull, 5>, 'A', 6>,
-                Pin<Alternate<PushPull, 5>, 'A', 7>,
-            ),
-            TransferModeNormal,
-        >,
-        ErasedPin<Output<PushPull>>,
-    >;
-
     type UsbdSerial = usbd_serial::SerialPort<'static, UsbBusType>;
 
-    pub struct MyMenuCtx {
+    pub struct MyUsbSerial {
         serial: UsbdSerial,
-        flash: MyFlash,
+    }
+
+    pub struct MyMenuCtx {
+        serial: MyUsbSerial,
+        pwd_store: PwdStore,
         watchdog: IndependentWatchdog,
     }
     impl fmt::Write for MyMenuCtx {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            s.bytes()
+                .try_for_each(|c| {
+                    if c == b'\n' {
+                        self.serial.serial.write(&[b'\r'])?;
+                    }
+                    self.serial.serial.write(&[c]).map(|_| ())
+                })
+                .map_err(|_| fmt::Error)
+        }
+    }
+
+    impl fmt::Write for MyUsbSerial {
         fn write_str(&mut self, s: &str) -> fmt::Result {
             s.bytes()
                 .try_for_each(|c| {
@@ -97,8 +107,6 @@ mod app {
     #[local]
     struct Local {}
 
-    const FLASH_SZ: u32 = 8 * 1024 * 1024;
-    const BLOCK_SZ: u32 = 4096;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
     #[init]
@@ -241,10 +249,12 @@ mod app {
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
         watchdog.start(500.ms());
 
+        let pwd_store = PwdStore::new(flash, FLASH_SIZE);
+
         static mut MENU_BUF: [u8; 64] = [0u8; 64];
         let menu_ctx = MyMenuCtx {
-            serial,
-            flash,
+            serial: MyUsbSerial { serial },
+            pwd_store,
             watchdog,
         };
         let menu_runner = menu::Runner::new(&ROOT_MENU, unsafe { &mut MENU_BUF }, menu_ctx);
@@ -313,7 +323,7 @@ mod app {
         });
     }
 
-    #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, ser_tx])]
+    #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, menu_runner])]
     fn button(cx: button::Context) {
         let mut button = cx.shared.pin_button;
         (&mut button).lock(|button| button.clear_interrupt_pending_bit());
@@ -326,9 +336,10 @@ mod app {
             *button_down = true;
         });
 
-        let mut ser_tx = cx.shared.ser_tx;
-        (&mut ser_tx).lock(|ser_tx| {
-            write!(ser_tx, "\r\n# button #\r\n").ok();
+        let mut menu_runner = cx.shared.menu_runner;
+        (&mut menu_runner).lock(|menu_runner| {
+            let ser = &mut menu_runner.context;
+            write!(ser, "\r\n# button #\r\n").ok();
         });
         led_blink::spawn(500).ok();
 
@@ -342,21 +353,26 @@ mod app {
         let mut pb = PrivateBox::new(&key, rng);
         let header = [];
         let metadata = [];
+
+        // encrypt it
         let cont = pb.encrypt(&msg, &header, &metadata).unwrap();
+
+        // decrypt it
         let (dec, _auth_h) = pb.decrypt(&cont, &metadata).unwrap();
 
-        (&mut ser_tx).lock(|ser_tx| {
-            write!(ser_tx, "key:\r\n").ok();
-            hex_dump_tx(ser_tx, &key);
+        (&mut menu_runner).lock(|menu_runner| {
+            let ser = &mut menu_runner.context;
+            write!(ser, "key:\r\n").ok();
+            hex_dump(ser, 0, &key);
 
-            write!(ser_tx, "msg:\r\n").ok();
-            hex_dump_tx(ser_tx, &msg);
+            write!(ser, "msg:\r\n").ok();
+            hex_dump(ser, 0, &msg);
 
-            write!(ser_tx, "container:\r\n").ok();
-            hex_dump_tx(ser_tx, cont.as_slice());
+            write!(ser, "container:\r\n").ok();
+            hex_dump(ser, 0, cont.as_slice());
 
-            write!(ser_tx, "dec:\r\n").ok();
-            hex_dump_tx(ser_tx, dec.as_slice());
+            write!(ser, "dec:\r\n").ok();
+            hex_dump(ser, 0, dec.as_slice());
         });
 
         // "debounce" (disable) button for 500ms
@@ -371,29 +387,13 @@ mod app {
         });
     }
 
-    #[task(priority=3, shared=[addr, ser_tx])]
-    fn new_addr(cx: new_addr::Context) {
-        let seed = monotonics::now().ticks();
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        let addr_rand: u32 = rng.gen();
-
-        let mut addr = cx.shared.addr;
-        let mut ser_tx = cx.shared.ser_tx;
-        (&mut addr, &mut ser_tx).lock(|addr, ser_tx| {
-            write!(ser_tx, "\r\nRNG seed: {}\r\n", seed).ok();
-            write!(ser_tx, "Old addr: {:06x}\r\n", *addr).ok();
-            *addr = addr_rand & 0xffff_f000;
-            write!(ser_tx, "New addr: {:06x}\r\n\n", *addr).ok();
-        });
-    }
-
     #[task(priority=5, binds=OTG_FS, shared=[usb_dev, menu_runner])]
     fn usb_fs(cx: usb_fs::Context) {
         let mut usb_dev = cx.shared.usb_dev;
         let mut menu_runner = cx.shared.menu_runner;
 
         (&mut usb_dev, &mut menu_runner).lock(|usb_dev, menu_runner| {
-            let serial = &mut menu_runner.context.serial;
+            let serial = &mut menu_runner.context.serial.serial;
             if !usb_dev.poll(&mut [serial]) {
                 return;
             }
@@ -432,61 +432,191 @@ mod app {
         exit: None,
         items: &[
             &menu::Item {
-                command: "read",
-                help: Some("read flash mem"),
+                command: "init",
+                help: Some("Initialize password store"),
                 item_type: menu::ItemType::Callback {
-                    function: cmd_read_write,
-                    parameters: &[
-                        menu::Parameter::Mandatory {
-                            parameter_name: "addr",
-                            help: Some("Address of flash read"),
-                        },
-                        menu::Parameter::Optional {
-                            parameter_name: "len",
-                            help: Some("Length of flash read"),
-                        },
-                    ],
+                    function: cmd_init,
+                    parameters: &[menu::Parameter::Mandatory {
+                        parameter_name: "master_pwd",
+                        help: Some("Master password"),
+                    }],
                 },
             },
+
             &menu::Item {
-                command: "write",
-                help: Some("write flash mem"),
+                command: "open",
+                help: Some("Open password store"),
                 item_type: menu::ItemType::Callback {
-                    function: cmd_read_write,
-                    parameters: &[
-                        menu::Parameter::Mandatory {
-                            parameter_name: "addr",
-                            help: Some("Address of flash write"),
-                        },
-                        menu::Parameter::Optional {
-                            parameter_name: "len",
-                            help: Some("Length of flash write"),
-                        },
-                    ],
+                    function: cmd_open,
+                    parameters: &[menu::Parameter::Mandatory {
+                        parameter_name: "master_pwd",
+                        help: Some("Master password"),
+                    }],
                 },
             },
+
             &menu::Item {
-                command: "erase",
-                help: Some("erase flash mem"),
+                command: "store",
+                help: Some("Store secret to flash"),
                 item_type: menu::ItemType::Callback {
-                    function: cmd_erase,
-                    parameters: &[
-                        menu::Parameter::Mandatory {
-                            parameter_name: "addr",
-                            help: Some("Address of flash erase - must be multiple of 4KB (0x1000)"),
-                        },
-                        menu::Parameter::Optional {
-                            parameter_name: "len",
-                            help: Some("Length of flash erase - must be multiple of 4KB (0x1000)"),
-                        },
-                    ],
+                    function: cmd_store,
+                    parameters: &[menu::Parameter::Mandatory {
+                        parameter_name: "secret",
+                        help: Some("Secret to store on flash"),
+                    }],
                 },
             },
+
+            &menu::Item {
+                command: "fetch",
+                help: Some("Fetch secret from flash"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_fetch,
+                    parameters: &[],
+                },
+            },
+
+            &menu::Item {
+                command: "scan",
+                help: Some("Scan flash for secrets"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_scan,
+                    parameters: &[],
+                },
+            },
+
+            &menu::Item {
+                command: "flash",
+                help: Some("Flash functions"),
+                item_type: menu::ItemType::Menu(
+                    &menu::Menu {
+                        label: "flash",
+                        entry: None,
+                        exit: None,
+                        items: &[        
+                            &menu::Item {
+                                command: "read",
+                                help: Some("Read flash mem"),
+                                item_type: menu::ItemType::Callback {
+                                    function: cmd_flash_read_write,
+                                    parameters: &[
+                                        menu::Parameter::Mandatory {
+                                            parameter_name: "addr",
+                                            help: Some("Start address of flash read"),
+                                        },
+
+                                        menu::Parameter::Optional {
+                                            parameter_name: "len",
+                                            help: Some("Read length in bytes"),
+                                        },
+                                    ],
+                                },
+                            },
+
+                            &menu::Item {
+                                command: "write",
+                                help: Some("Write flash mem"),
+                                item_type: menu::ItemType::Callback {
+                                    function: cmd_flash_read_write,
+                                    parameters: &[
+                                        menu::Parameter::Mandatory {
+                                            parameter_name: "addr",
+                                            help: Some("Start address of flash write"),
+                                        },
+
+                                        menu::Parameter::Optional {
+                                            parameter_name: "len",
+                                            help: Some("Write length in bytes"),
+                                        },
+
+                                        menu::Parameter::Optional {
+                                            parameter_name: "data",
+                                            help: Some("Fill byte, default is randomized"),
+                                        },
+                                    ],
+                                },
+                            },
+
+                            &menu::Item {
+                                command: "erase",
+                                help: Some("Erase flash mem"),
+                                item_type: menu::ItemType::Callback {
+                                    function: cmd_flash_erase,
+                                    parameters: &[
+                                        menu::Parameter::Mandatory {
+                                            parameter_name: "addr",
+                                            help: Some("Address of flash erase - must be multiple of 4KB (0x1000)"),
+                                        },
+
+                                        menu::Parameter::Optional {
+                                            parameter_name: "len",
+                                            help: Some("Length of flash erase - must be multiple of 4KB (0x1000)"),
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ),
+            }
         ],
     };
 
-    const FLASH_SIZE: usize = 8 * 1024 * 1024; // 8 MB
-    const SECT_SIZE: usize = 4 * 1024; // 4 KB
+    fn cmd_init(
+        _menu: &menu::Menu<MyMenuCtx>,
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        if let Ok(Some(master_pwd)) = menu::argument_finder(item, args, "master_pwd") {
+            let pws = &mut ctx.pwd_store;
+            pws.init(&mut ctx.serial, master_pwd, monotonics::now().ticks());
+        }
+    }
+
+    fn cmd_open(
+        _menu: &menu::Menu<MyMenuCtx>,
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        if let Ok(Some(master_pwd)) = menu::argument_finder(item, args, "master_pwd") {
+            let pws = &mut ctx.pwd_store;
+            pws.open(&mut ctx.serial, master_pwd, monotonics::now().ticks());
+        }
+    }
+
+    fn cmd_store(
+        _menu: &menu::Menu<MyMenuCtx>,
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        if let Ok(Some(secret)) = menu::argument_finder(item, args, "secret") {
+            let pws = &mut ctx.pwd_store;
+            pws.store(&mut ctx.serial, secret, monotonics::now().ticks());
+        }
+    }
+
+    fn cmd_fetch(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let pws = &mut ctx.pwd_store;
+        pws.fetch(&mut ctx.serial);
+    }
+
+    fn cmd_scan(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let pws = &mut ctx.pwd_store;
+        pws.scan(&mut ctx.serial);
+    }
 
     fn parse_radix(ctx: &mut MyMenuCtx, addr: &str, radix: u32) -> Option<usize> {
         match usize::from_str_radix(addr, radix) {
@@ -498,21 +628,21 @@ mod app {
         }
     }
 
-    fn parse_addr(ctx: &mut MyMenuCtx, addr: &str) -> Option<usize> {
-        if let Some(hex) = addr.strip_prefix("0x") {
+    fn parse_num(ctx: &mut MyMenuCtx, num: &str) -> Option<usize> {
+        if let Some(hex) = num.strip_prefix("0x") {
             // Hex parse
             parse_radix(ctx, hex, 16)
-        } else if addr.starts_with('0') && addr.len() > 1 {
+        } else if num.starts_with('0') && num.len() > 1 {
             // Octal parse
-            parse_radix(ctx, &addr[1..], 8)
+            parse_radix(ctx, &num[1..], 8)
         } else {
             // Decimal parse
-            parse_radix(ctx, addr, 10)
+            parse_radix(ctx, num, 10)
         }
     }
 
     const HEX_BUF_SZ: usize = 256;
-    fn cmd_read_write(
+    fn cmd_flash_read_write(
         _menu: &menu::Menu<MyMenuCtx>,
         item: &menu::Item<MyMenuCtx>,
         args: &[&str],
@@ -521,7 +651,7 @@ mod app {
         let mode_write = item.command == "write";
 
         let addr = if let Ok(Some(aa)) = menu::argument_finder(item, args, "addr") {
-            if let Some(a) = parse_addr(ctx, aa) {
+            if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
                 write!(ctx, "Could not parse addr: \"{}\".\r\n", aa).ok();
@@ -543,7 +673,7 @@ mod app {
 
         let mut len = HEX_BUF_SZ;
         if let Ok(Some(al)) = menu::argument_finder(item, args, "len") {
-            if let Some(ret) = parse_addr(ctx, al) {
+            if let Some(ret) = parse_num(ctx, al) {
                 len = ret;
             } else {
                 write!(ctx, "Could not parse len: \"{}\".\r\n", al).ok();
@@ -559,6 +689,16 @@ mod app {
             )
             .ok();
             len = new_len;
+        }
+
+        let mut fill_byte: Option<u8> = None;
+        if let Ok(Some(data_s)) = menu::argument_finder(item, args, "data") {
+            if let Some(ret) = parse_num(ctx, data_s) {
+                fill_byte = Some(ret as u8);
+            } else {
+                write!(ctx, "Could not parse data: \"{}\".\r\n", data_s).ok();
+                return;
+            }
         }
 
         let mut buf = [0u8; HEX_BUF_SZ as usize];
@@ -590,9 +730,20 @@ mod app {
             };
 
             if mode_write {
-                rng.fill_bytes(&mut buf[..mem_len]);
-                hex_dump_usb(ctx, mem_addr, &buf[..mem_len]);
-                match ctx.flash.write_bytes(mem_addr as u32, &mut buf[..mem_len]) {
+                if let Some(fill_b) = fill_byte {
+                    // data byte to use for filling was given
+                    buf.iter_mut().for_each(|b| *b = fill_b);
+                } else {
+                    // fill buf with random bytes
+                    rng.fill_bytes(&mut buf[..mem_len]);
+                }
+
+                hex_dump(ctx, mem_addr, &buf[..mem_len]);
+                match ctx
+                    .pwd_store
+                    .flash
+                    .write_bytes(mem_addr as u32, &mut buf[..mem_len])
+                {
                     Ok(w) => {
                         write!(ctx, "#wait {}\r\n", w).ok();
                     }
@@ -607,7 +758,11 @@ mod app {
                     }
                 }
             } else {
-                if let Err(e) = ctx.flash.read(mem_addr as u32, &mut buf[..mem_len]) {
+                if let Err(e) = ctx
+                    .pwd_store
+                    .flash
+                    .read(mem_addr as u32, &mut buf[..mem_len])
+                {
                     write!(
                         ctx,
                         "\r\n### Flash read failed at 0x{:06x} ({:?}) - abort.\r\n",
@@ -616,7 +771,7 @@ mod app {
                     .ok();
                     return;
                 }
-                hex_dump_usb(ctx, mem_addr, &buf[..mem_len]);
+                hex_dump(ctx, mem_addr, &buf[..mem_len]);
             }
             // prevent hardware reset during lengthy flash ops
             ctx.watchdog.feed();
@@ -624,17 +779,17 @@ mod app {
         write!(ctx, "\r\n").ok();
     }
 
-    fn cmd_erase(
+    fn cmd_flash_erase(
         _menu: &menu::Menu<MyMenuCtx>,
         item: &menu::Item<MyMenuCtx>,
         args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
-        let jedec_id = ctx.flash.read_jedec_id().unwrap();
+        let jedec_id = ctx.pwd_store.flash.read_jedec_id().unwrap();
         write!(ctx, "\r\nFlash jedec id: {:?}\r\n", jedec_id).ok();
 
         let addr = if let Ok(Some(aa)) = menu::argument_finder(item, args, "addr") {
-            if let Some(a) = parse_addr(ctx, aa) {
+            if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
                 write!(ctx, "Could not parse addr: \"{}\".\r\n", aa).ok();
@@ -665,7 +820,7 @@ mod app {
 
         let mut len = SECT_SIZE;
         if let Ok(Some(al)) = menu::argument_finder(item, args, "len") {
-            if let Some(ret) = parse_addr(ctx, al) {
+            if let Some(ret) = parse_num(ctx, al) {
                 len = ret;
             } else {
                 write!(ctx, "Could not parse len: \"{}\".\r\n", al).ok();
@@ -702,7 +857,7 @@ mod app {
 
         for c in 0..sectors {
             let mem_addr = addr + c * SECT_SIZE;
-            match ctx.flash.erase_sectors(mem_addr as u32, 1) {
+            match ctx.pwd_store.flash.erase_sectors(mem_addr as u32, 1) {
                 Ok(w) => {
                     write!(ctx, "\r#e 0x{:06x} #w {}      ", mem_addr, w).ok();
                 }
@@ -720,39 +875,6 @@ mod app {
             ctx.watchdog.feed();
         }
         write!(ctx, "\r\ndone.\r\n").ok();
-    }
-
-    const ROW_SZ: usize = 0x40; // 64
-    fn hex_dump_usb(output: &mut MyMenuCtx, addr: usize, buf: &[u8]) {
-        for (i, c) in buf.iter().enumerate() {
-            if i % ROW_SZ == 0 {
-                if i > 0 {
-                    write!(output, "\r\n").ok();
-                }
-                write!(output, "#{:06x} ", addr + i).ok();
-            }
-            write!(output, "{:02x} ", c).ok();
-        }
-        write!(output, "\r\n").ok();
-    }
-
-    fn hex_dump_tx(serial: &mut SerialTx, buf: &[u8]) {
-        let mut offset: usize = 0;
-        let len = buf.len();
-        let mut stop = false;
-        while !stop {
-            let mut end = offset + ROW_SZ;
-            if end > len {
-                stop = true;
-                end = len;
-            }
-            let slice = &buf[offset..end];
-            offset += ROW_SZ;
-            for c in slice {
-                write!(serial, "{:02x} ", c).ok();
-            }
-            write!(serial, "\r\n").ok();
-        }
     }
 }
 // EOF

@@ -17,29 +17,32 @@ git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
 
 [dependencies]
 cortex-m = "0.7"
-cortex-m-rt = "*"
+cortex-m-rt = "0"
 cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic.git" }
 systick-monotonic = { git = "https://github.com/rtic-rs/systick-monotonic.git" }
-cortex-m-semihosting = "*"
-# alloc-cortex-m = "0.4"
+# cortex-m-semihosting = "0"
+# alloc-cortex-m = "0"
 alloc-cortex-m = { git = "https://github.com/rust-embedded/alloc-cortex-m.git" }
-stm32f4 = "*"
-embedded-hal = "*"
-stm32-usbd = "*"
-usb-device = "*"
-usbd-serial = "*"
-panic-halt = "*"
+stm32f4 = "0"
+embedded-hal = "0"
+stm32-usbd = "0"
+usb-device = "0"
+usbd-serial = "0"
+panic-halt = "0"
 spi-memory = { git = "https://github.com/sjm42/spi-memory.git" }
-rand = { version = "*", default-features = false, features = ["std_rng"] }
-fugit = "*"
-privatebox = "*"
-menu = "*"
+fugit = "0"
+rand = { version = "0", default-features = false, features = ["std_rng"] }
+sha2 = { version = "0", default-features = false }
+privatebox = "0"
+menu = "0"
+no-std-compat = { version = "0", features = ["alloc"] }
+
 
 # this lets you use `cargo fix`!
-[[bin]]
-name = "blackpill-usb-pwdstore"
-test = false
-bench = false
+#[[bin]]
+#name = "blackpill-usb-pwdstore"
+#test = false
+#bench = false
 
 # identical profiles haha
 
