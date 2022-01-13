@@ -10,8 +10,8 @@
 
 extern crate alloc;
 extern crate no_std_compat as std;
-use std::prelude::v1::*;
 
+use std::prelude::v1::*;
 use alloc_cortex_m::CortexMHeap;
 use core::alloc::Layout;
 use panic_halt as _;
@@ -32,7 +32,6 @@ mod app {
 
     use core::fmt::{self, Write};
     use cortex_m::asm;
-    use privatebox::PrivateBox;
     use rand::prelude::*;
     use rand::SeedableRng;
     use spi_memory::{prelude::*, series25::Flash};
@@ -46,9 +45,6 @@ mod app {
     use hal::watchdog::IndependentWatchdog;
     use hal::{delay::Delay, gpio::*, prelude::*, serial, spi::*};
     // use embedded_hal::digital::v2::OutputPin;
-
-    const FLASH_SIZE: usize = 8 * 1024 * 1024; // 8 MB
-    const SECT_SIZE: usize = 4 * 1024; // 4 KB
 
     #[monotonic(binds=SysTick, default=true)]
     type SysMono = Systick<10_000>; // 10 kHz / 100 µs granularity
@@ -64,7 +60,7 @@ mod app {
     pub struct MyMenuCtx {
         serial: MyUsbSerial,
         pwd_store: PwdStore,
-        watchdog: IndependentWatchdog,
+        
     }
     impl fmt::Write for MyMenuCtx {
         fn write_str(&mut self, s: &str) -> fmt::Result {
@@ -249,13 +245,12 @@ mod app {
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
         watchdog.start(500.ms());
 
-        let pwd_store = PwdStore::new(flash, FLASH_SIZE);
+        let pwd_store = PwdStore::new(flash, watchdog);
 
         static mut MENU_BUF: [u8; 64] = [0u8; 64];
         let menu_ctx = MyMenuCtx {
             serial: MyUsbSerial { serial },
             pwd_store,
-            watchdog,
         };
         let menu_runner = menu::Runner::new(&ROOT_MENU, unsafe { &mut MENU_BUF }, menu_ctx);
 
@@ -294,7 +289,7 @@ mod app {
     fn periodic(cx: periodic::Context) {
         let mut menu_runner = cx.shared.menu_runner;
         (&mut menu_runner).lock(|menu_runner| {
-            menu_runner.context.watchdog.feed();
+            menu_runner.context.pwd_store.watchdog.feed();
         });
         periodic::spawn_after(200u64.millis()).ok();
     }
@@ -331,6 +326,7 @@ mod app {
         let mut button_down = cx.shared.button_down;
         (&mut button_down).lock(|button_down| {
             if *button_down {
+                // debounce?
                 return;
             }
             *button_down = true;
@@ -343,39 +339,7 @@ mod app {
         });
         led_blink::spawn(500).ok();
 
-        let seed = monotonics::now().ticks();
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        let mut key = [0u8; 32];
-        rng.fill_bytes(&mut key);
-        let mut msg = [0u8; 32];
-        rng.fill_bytes(&mut msg);
-
-        let mut pb = PrivateBox::new(&key, rng);
-        let header = [];
-        let metadata = [];
-
-        // encrypt it
-        let cont = pb.encrypt(&msg, &header, &metadata).unwrap();
-
-        // decrypt it
-        let (dec, _auth_h) = pb.decrypt(&cont, &metadata).unwrap();
-
-        (&mut menu_runner).lock(|menu_runner| {
-            let ser = &mut menu_runner.context;
-            write!(ser, "key:\r\n").ok();
-            hex_dump(ser, 0, &key);
-
-            write!(ser, "msg:\r\n").ok();
-            hex_dump(ser, 0, &msg);
-
-            write!(ser, "container:\r\n").ok();
-            hex_dump(ser, 0, cont.as_slice());
-
-            write!(ser, "dec:\r\n").ok();
-            hex_dump(ser, 0, dec.as_slice());
-        });
-
-        // "debounce" (disable) button for 500ms
+        // disable button for 500ms (debounce)
         button_up::spawn_after(500u64.millis()).ok();
     }
 
@@ -412,7 +376,7 @@ mod app {
         });
 
         (&mut menu_runner).lock(|menu_runner| {
-            menu_runner.context.watchdog.feed();
+            menu_runner.context.pwd_store.watchdog.feed();
         });
 
         led_blink::spawn(10).ok();
@@ -431,6 +395,15 @@ mod app {
         entry: None,
         exit: None,
         items: &[
+            &menu::Item {
+                command: "status",
+                help: Some("Show status"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_status,
+                    parameters: &[],
+                },
+            },
+
             &menu::Item {
                 command: "init",
                 help: Some("Initialize password store"),
@@ -458,14 +431,23 @@ mod app {
             },
 
             &menu::Item {
+                command: "close",
+                help: Some("Close password store"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_close,
+                    parameters: &[],
+                },
+            },
+
+            &menu::Item {
                 command: "store",
                 help: Some("Store secret to flash"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_store,
                     parameters: &[
                         menu::Parameter::Mandatory {
-                        parameter_name: "loc",
-                        help: Some("Location to use, 1-2047 (0x001-0x7FF)"),
+                        parameter_name: "name",
+                        help: Some("Name of secret"),
                     },
                         menu::Parameter::Mandatory {
                         parameter_name: "secret",
@@ -493,6 +475,28 @@ mod app {
                 item_type: menu::ItemType::Callback {
                     function: cmd_scan,
                     parameters: &[],
+                },
+            },
+
+            &menu::Item {
+                command: "list",
+                help: Some("List secrets"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_list,
+                    parameters: &[],
+                },
+            },
+
+            &menu::Item {
+                command: "search",
+                help: Some("Search secret names with a string"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_search,
+                    parameters: &[
+                        menu::Parameter::Mandatory {
+                        parameter_name: "srch",
+                        help: Some("String to search"),
+                    }],
                 },
             },
 
@@ -569,6 +573,16 @@ mod app {
         ],
     };
 
+    fn cmd_status(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let pws = &mut ctx.pwd_store;
+        pws.status(&mut ctx.serial);
+    }
+
     fn cmd_init(
         _menu: &menu::Menu<MyMenuCtx>,
         item: &menu::Item<MyMenuCtx>,
@@ -593,36 +607,32 @@ mod app {
         }
     }
 
+    fn cmd_close(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let pws = &mut ctx.pwd_store;
+        pws.close(&mut ctx.serial);
+    }
+
     fn cmd_store(
         _menu: &menu::Menu<MyMenuCtx>,
         item: &menu::Item<MyMenuCtx>,
         args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
-        let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
-            if let Some(a) = parse_num(ctx, aa) {
-                a
-            } else {
-                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
-                return;
-            }
+        let name = if let Ok(Some(aa)) = menu::argument_finder(item, args, "name") {
+            aa
         } else {
-            write!(ctx, "Location not given.\r\n").ok();
+            write!(ctx, "Name not given.\r\n").ok();
             return;
         };
-        if !(1..=0x7FF).contains(&loc) {
-            write!(
-                ctx,
-                "Error: location {} (0x{:x}) is not between 1-2047.\r\n",
-                loc, loc
-            )
-            .ok();
-            return;
-        }
 
         if let Ok(Some(secret)) = menu::argument_finder(item, args, "secret") {
             let pws = &mut ctx.pwd_store;
-            pws.store(&mut ctx.serial, loc, secret);
+            pws.store(&mut ctx.serial, name, secret);
         }
     }
 
@@ -665,6 +675,33 @@ mod app {
     ) {
         let pws = &mut ctx.pwd_store;
         pws.scan(&mut ctx.serial);
+    }
+
+    fn cmd_list(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let pws = &mut ctx.pwd_store;
+        pws.list(&mut ctx.serial);
+    }
+
+    fn cmd_search(
+        _menu: &menu::Menu<MyMenuCtx>,
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let srch = if let Ok(Some(term)) = menu::argument_finder(item, args, "srch") {
+            term
+        } else {
+            write!(ctx, "Search string not given.\r\n").ok();
+            return;
+        };
+
+        let pws = &mut ctx.pwd_store;
+        pws.search(&mut ctx.serial, srch.as_bytes());
     }
 
     fn parse_radix(ctx: &mut MyMenuCtx, addr: &str, radix: u32) -> Option<usize> {
@@ -823,7 +860,7 @@ mod app {
                 hex_dump(ctx, mem_addr, &buf[..mem_len]);
             }
             // prevent hardware reset during lengthy flash ops
-            ctx.watchdog.feed();
+            ctx.pwd_store.watchdog.feed();
         }
         write!(ctx, "\r\n").ok();
     }
@@ -848,11 +885,11 @@ mod app {
             write!(ctx, "Address not given.\r\n").ok();
             return;
         };
-        if addr % SECT_SIZE != 0 {
+        if addr % FLASH_BLOCK_SIZE != 0 {
             write!(
                 ctx,
                 "Error: addr {} (0x{:x}) is not multiple of {} (0x{:02x}).\r\n",
-                addr, addr, SECT_SIZE, SECT_SIZE
+                addr, addr, FLASH_BLOCK_SIZE, FLASH_BLOCK_SIZE
             )
             .ok();
             return;
@@ -867,7 +904,7 @@ mod app {
             return;
         }
 
-        let mut len = SECT_SIZE;
+        let mut len = FLASH_BLOCK_SIZE;
         if let Ok(Some(al)) = menu::argument_finder(item, args, "len") {
             if let Some(ret) = parse_num(ctx, al) {
                 len = ret;
@@ -876,11 +913,11 @@ mod app {
                 return;
             }
         }
-        if len % SECT_SIZE != 0 {
+        if len % FLASH_BLOCK_SIZE != 0 {
             write!(
                 ctx,
                 "Error: len {} (0x{:x}) is not multiple of {} (0x{:02x}).\r\n",
-                len, len, SECT_SIZE, SECT_SIZE
+                len, len, FLASH_BLOCK_SIZE, FLASH_BLOCK_SIZE
             )
             .ok();
             return;
@@ -896,7 +933,7 @@ mod app {
             len = new_len;
         }
 
-        let sectors = len / SECT_SIZE;
+        let sectors = len / FLASH_BLOCK_SIZE;
         write!(
             ctx,
             "* Erasing {} (0x{:x}) bytes at 0x{:06x} in {} sectors:\r\n",
@@ -905,7 +942,7 @@ mod app {
         .ok();
 
         for c in 0..sectors {
-            let mem_addr = addr + c * SECT_SIZE;
+            let mem_addr = addr + c * FLASH_BLOCK_SIZE;
             match ctx.pwd_store.flash.erase_sectors(mem_addr as u32, 1) {
                 Ok(w) => {
                     write!(ctx, "\r#e 0x{:06x} #w {}      ", mem_addr, w).ok();
@@ -921,7 +958,7 @@ mod app {
                 }
             }
             // prevent hardware reset during lengthy flash ops
-            ctx.watchdog.feed();
+            ctx.pwd_store.watchdog.feed();
         }
         write!(ctx, "\r\ndone.\r\n").ok();
     }

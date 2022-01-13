@@ -14,6 +14,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {
+    build_data::set_GIT_BRANCH();
+    build_data::set_GIT_COMMIT();
+    build_data::set_SOURCE_TIMESTAMP();
+    build_data::set_RUSTC_VERSION();
+    build_data::no_debug_rebuilds();
+
     let mut memory_x = include_bytes!("memory.x").to_vec();
     if let Some(_feature) = env::var_os("CARGO_FEATURE_BLUE_PILL") {
         memory_x = include_bytes!("memory-blue_pill.x").to_vec();
