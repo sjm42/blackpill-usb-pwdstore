@@ -513,12 +513,6 @@ mod app {
             let ctx = &mut menu_runner.context;
             let pass1 = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             let pass2 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
-            write!(
-                ctx,
-                "pass1: {pass1}\r\n\
-                pass2: {pass2}\r\n",
-            )
-            .ok();
             if pass1 != pass2 {
                 write!(ctx, "Error: passwords are not equal.\r\n").ok();
                 return;
@@ -550,14 +544,6 @@ mod app {
             let user = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             let pass1 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
             let pass2 = String::from_utf8_lossy(&ctx.buf3[..ctx.idx3]).to_string();
-            write!(
-                ctx,
-                "name: {name}\r\n\
-                input1: {user}\r\n\
-                input2: {pass1}\r\n\
-                input3: {pass2}\r\n",
-            )
-            .ok();
             if pass1 != pass2 {
                 write!(ctx, "Error: passwords are not equal.\r\n").ok();
                 return;
