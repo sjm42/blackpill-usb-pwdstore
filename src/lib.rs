@@ -9,7 +9,7 @@ pub use pwdstore::*;
 const ROW_SZ: usize = 0x40; // 64
 pub fn hex_dump<O>(output: &mut O, addr: usize, buf: &[u8])
 where
-    O: Sized + fmt::Write,
+    O: fmt::Write,
 {
     for (i, c) in buf.iter().enumerate() {
         if i % ROW_SZ == 0 {
@@ -18,7 +18,7 @@ where
             }
             write!(output, "#{:06x} ", addr + i).ok();
         }
-        write!(output, "{:02x} ", c).ok();
+        write!(output, "{c:02x} ").ok();
     }
     write!(output, "\r\n").ok();
 }

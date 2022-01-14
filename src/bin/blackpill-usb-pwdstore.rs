@@ -257,7 +257,7 @@ mod app {
         // Start the hardware watchdog
 
         // feed the watchdog
-        periodic::spawn().ok();
+        periodic::spawn().unwrap();
 
         (
             Shared {
@@ -291,7 +291,7 @@ mod app {
         (&mut menu_runner).lock(|menu_runner| {
             menu_runner.context.pwd_store.watchdog.feed();
         });
-        periodic::spawn_after(200u64.millis()).ok();
+        periodic::spawn_after(200u64.millis()).unwrap();
     }
 
     #[task(priority=3, capacity=8, shared=[led_on, pin_led])]
@@ -303,7 +303,7 @@ mod app {
             if !(*led_on) {
                 led.set_low();
                 *led_on = true;
-                led_off::spawn_after(ms.millis()).ok();
+                led_off::spawn_after(ms.millis()).unwrap();
             }
         });
     }
@@ -337,10 +337,10 @@ mod app {
             let ser = &mut menu_runner.context;
             write!(ser, "\r\n# button #\r\n").ok();
         });
-        led_blink::spawn(500).ok();
+        led_blink::spawn(500).unwrap();
 
         // disable button for 500ms (debounce)
-        button_up::spawn_after(500u64.millis()).ok();
+        button_up::spawn_after(500u64.millis()).unwrap();
     }
 
     #[task(priority=3, shared=[button_down])]
@@ -370,7 +370,7 @@ mod app {
 
                 for c in buf[0..count].iter() {
                     // keep runner at lower priority
-                    feed_runner::spawn(*c).ok();
+                    feed_runner::spawn(*c).unwrap();
                 }
             }
         });
@@ -379,7 +379,7 @@ mod app {
             menu_runner.context.pwd_store.watchdog.feed();
         });
 
-        led_blink::spawn(10).ok();
+        led_blink::spawn(10).unwrap();
     }
 
     #[task(priority=2, capacity=5, shared=[menu_runner])]
@@ -448,11 +448,16 @@ mod app {
                         menu::Parameter::Mandatory {
                         parameter_name: "name",
                         help: Some("Name of secret"),
-                    },
+                        },
                         menu::Parameter::Mandatory {
-                        parameter_name: "secret",
-                        help: Some("Secret to store on flash"),
-                    }],
+                        parameter_name: "user",
+                        help: Some("Username to store"),
+                        },
+                        menu::Parameter::Mandatory {
+                        parameter_name: "pass",
+                        help: Some("Password to store"),
+                        },
+                    ],
                 },
             },
 
@@ -464,7 +469,20 @@ mod app {
                     parameters: &[
                         menu::Parameter::Mandatory {
                         parameter_name: "loc",
-                        help: Some("Location to use, 1-2047 (0x001-0x7FF)"),
+                        help: Some("Location to fetch"),
+                    }],
+                },
+            },
+
+            &menu::Item {
+                command: "drop",
+                help: Some("Drop secret from flash"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_drop,
+                    parameters: &[
+                        menu::Parameter::Mandatory {
+                        parameter_name: "loc",
+                        help: Some("Location to drop"),
                     }],
                 },
             },
@@ -629,11 +647,21 @@ mod app {
             write!(ctx, "Name not given.\r\n").ok();
             return;
         };
+        let user = if let Ok(Some(aa)) = menu::argument_finder(item, args, "user") {
+            aa
+        } else {
+            write!(ctx, "Username not given.\r\n").ok();
+            return;
+        };
+        let pass = if let Ok(Some(aa)) = menu::argument_finder(item, args, "pass") {
+            aa
+        } else {
+            write!(ctx, "Password not given.\r\n").ok();
+            return;
+        };
 
-        if let Ok(Some(secret)) = menu::argument_finder(item, args, "secret") {
             let pws = &mut ctx.pwd_store;
-            pws.store(&mut ctx.serial, name, secret);
-        }
+            pws.store(&mut ctx.serial, name, user, pass);
     }
 
     fn cmd_fetch(
@@ -653,18 +681,31 @@ mod app {
             write!(ctx, "Location not given.\r\n").ok();
             return;
         };
-        if !(1..=0x7FF).contains(&loc) {
-            write!(
-                ctx,
-                "Error: location {} (0x{:x}) is not between 1-2047.\r\n",
-                loc, loc
-            )
-            .ok();
-            return;
-        }
 
         let pws = &mut ctx.pwd_store;
         pws.fetch(&mut ctx.serial, loc);
+    }
+
+    fn cmd_drop(
+        _menu: &menu::Menu<MyMenuCtx>,
+        item: &menu::Item<MyMenuCtx>,
+        args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
+            if let Some(a) = parse_num(ctx, aa) {
+                a
+            } else {
+                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
+                return;
+            }
+        } else {
+            write!(ctx, "Location not given.\r\n").ok();
+            return;
+        };
+
+        let pws = &mut ctx.pwd_store;
+        pws.drop(&mut ctx.serial, loc);
     }
 
     fn cmd_scan(
