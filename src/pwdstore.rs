@@ -4,7 +4,7 @@
 extern crate alloc;
 extern crate no_std_compat as std;
 
-use alloc::string::String;
+use alloc::string::*;
 use core::fmt;
 use cortex_m::prelude::_embedded_hal_watchdog_Watchdog;
 use no_std_compat::borrow::Cow;
@@ -40,6 +40,7 @@ const ADDR_MASTER_KEY: u32 = 0x000000;
 const ADDR_MIN: u32 = FLASH_BLOCK_SIZE as u32;
 const ADDR_MAX: u32 = (FLASH_BLOCK_SIZE * 0x07FF) as u32;
 
+const NOECHO_BUF_LEN: usize = FLASH_BLOCK_SIZE;
 const PWD_NAME_LEN: usize = 250;
 const PWD_DATA_LEN: usize = FLASH_BLOCK_SIZE - 6 - PWD_NAME_LEN;
 const SIZE_PWD_REPR: usize = 6 + PWD_NAME_LEN + PWD_DATA_LEN;
@@ -61,6 +62,13 @@ struct ScanBuf {
     len_username: u16,
     len_password: u16,
     name: [u8; PWD_NAME_LEN],
+}
+
+pub struct PwdStore {
+    pub flash: MyFlash,
+    pub watchdog: IndependentWatchdog,
+    pbox: Option<PrivateBox<StdRng>>,
+    rng: Option<StdRng>,
 }
 
 impl PwdRepr {
@@ -228,20 +236,11 @@ impl ScanBuf {
     }
 }
 
-pub struct PwdStore {
-    pub flash: MyFlash,
-    pub watchdog: IndependentWatchdog,
-    blocks: usize,
-    pbox: Option<PrivateBox<StdRng>>,
-    rng: Option<StdRng>,
-}
-
 impl PwdStore {
     pub fn new(flash: MyFlash, watchdog: IndependentWatchdog) -> Self {
         Self {
             flash,
             watchdog,
-            blocks: FLASH_SIZE / FLASH_BLOCK_SIZE,
             pbox: None,
             rng: None,
         }
@@ -271,28 +270,18 @@ impl PwdStore {
         .ok();
     }
 
-    pub fn init<D>(&mut self, debug: &mut D, master_pass: &str, seed: u64)
-    where
-        D: Sized + fmt::Write,
-    {
+    pub fn is_initialized(&mut self) -> bool {
         let mut pwd_buf = PwdRepr::new(&[], &[], &[]).unwrap();
         self.flash
             .read(ADDR_MASTER_KEY, pwd_buf.bytes_mut())
             .unwrap();
-        if pwd_buf.is_valid() {
-            write!(
-                debug,
-                "Error: will not overwrite existing master key.\r\n\
-                If you want a fresh start, issue these commands from main menu:\r\n\
-                flash\r\n\
-                erase 0 0x800000\r\n\
-                exit\r\n"
-            )
-            .ok();
-            return;
-        }
-        drop(pwd_buf);
+        pwd_buf.is_valid()
+    }
 
+    pub fn init<D>(&mut self, debug: &mut D, master_pass: &str, seed: u64)
+    where
+        D: Sized + fmt::Write,
+    {
         // Create a new RNG seeded with master_pass and given seed (timestamp)
         let mut master_seed = [0u8; privatebox::KEY_SIZE];
         let mut seed_hasher = Sha256::new();
@@ -544,7 +533,7 @@ impl PwdStore {
 
         let mut scan_buf = ScanBuf::new();
 
-        for i in 0..self.blocks {
+        for i in 0..FLASH_SIZE / FLASH_BLOCK_SIZE {
             let addr = i * FLASH_BLOCK_SIZE;
             if i % 16 == 0 {
                 self.watchdog.feed();

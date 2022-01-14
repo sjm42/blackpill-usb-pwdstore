@@ -11,10 +11,10 @@
 extern crate alloc;
 extern crate no_std_compat as std;
 
-use std::prelude::v1::*;
 use alloc_cortex_m::CortexMHeap;
 use core::alloc::Layout;
 use panic_halt as _;
+use std::prelude::v1::*;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -30,6 +30,7 @@ fn oom(_: Layout) -> ! {
 mod app {
     use blackpill_usb_pwdstore::*;
 
+    use alloc::string::*;
     use core::fmt::{self, Write};
     use cortex_m::asm;
     use rand::prelude::*;
@@ -46,12 +47,34 @@ mod app {
     use hal::{delay::Delay, gpio::*, prelude::*, serial, spi::*};
     // use embedded_hal::digital::v2::OutputPin;
 
+    const NOECHO_BUF_SIZE: usize = 256;
+
     #[monotonic(binds=SysTick, default=true)]
     type SysMono = Systick<10_000>; // 10 kHz / 100 µs granularity
 
     type SerialTx = serial::Tx<USART1, u8>;
-
     type UsbdSerial = usbd_serial::SerialPort<'static, UsbBusType>;
+
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub enum InitState {
+        Idle,
+        AskPass1,
+        AskPass2,
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub enum OpenState {
+        Idle,
+        AskPass,
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub enum StoreState {
+        Idle,
+        AskUser,
+        AskPass1,
+        AskPass2,
+    }
 
     pub struct MyUsbSerial {
         serial: UsbdSerial,
@@ -60,8 +83,18 @@ mod app {
     pub struct MyMenuCtx {
         serial: MyUsbSerial,
         pwd_store: PwdStore,
-        
+        init: InitState,
+        open: OpenState,
+        store: StoreState,
+        opt_str: Option<String>,
+        idx1: usize,
+        buf1: [u8; NOECHO_BUF_SIZE],
+        idx2: usize,
+        buf2: [u8; NOECHO_BUF_SIZE],
+        idx3: usize,
+        buf3: [u8; NOECHO_BUF_SIZE],
     }
+
     impl fmt::Write for MyMenuCtx {
         fn write_str(&mut self, s: &str) -> fmt::Result {
             s.bytes()
@@ -233,8 +266,8 @@ mod app {
             UsbVidPid(0x16c0, 0x27dd),
         )
         .manufacturer("Siuro Hacklab")
-        .product("Mystery Gadget")
-        .serial_number("1234")
+        .product("Password Store")
+        .serial_number("4242")
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
 
@@ -243,18 +276,27 @@ mod app {
         write!(ser_tx, "Flash jedec id: {:?}\r\n\n", jedec_id).ok();
 
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
+        // Start the hardware watchdog
         watchdog.start(500.ms());
 
         let pwd_store = PwdStore::new(flash, watchdog);
 
-        static mut MENU_BUF: [u8; 64] = [0u8; 64];
         let menu_ctx = MyMenuCtx {
             serial: MyUsbSerial { serial },
             pwd_store,
+            init: InitState::Idle,
+            open: OpenState::Idle,
+            store: StoreState::Idle,
+            opt_str: None,
+            idx1: 0,
+            buf1: [0; NOECHO_BUF_SIZE],
+            idx2: 0,
+            buf2: [0; NOECHO_BUF_SIZE],
+            idx3: 0,
+            buf3: [0; NOECHO_BUF_SIZE],
         };
+        static mut MENU_BUF: [u8; 64] = [0u8; 64];
         let menu_runner = menu::Runner::new(&ROOT_MENU, unsafe { &mut MENU_BUF }, menu_ctx);
-
-        // Start the hardware watchdog
 
         // feed the watchdog
         periodic::spawn().unwrap();
@@ -357,7 +399,9 @@ mod app {
         let mut menu_runner = cx.shared.menu_runner;
 
         (&mut usb_dev, &mut menu_runner).lock(|usb_dev, menu_runner| {
-            let serial = &mut menu_runner.context.serial.serial;
+            let ctx = &mut menu_runner.context;
+            let serial = &mut ctx.serial.serial;
+
             if !usb_dev.poll(&mut [serial]) {
                 return;
             }
@@ -369,8 +413,80 @@ mod app {
                 }
 
                 for c in buf[0..count].iter() {
-                    // keep runner at lower priority
-                    feed_runner::spawn(*c).unwrap();
+                    if ctx.init != InitState::Idle {
+                        match ctx.init {
+                            InitState::AskPass1 => {
+                                if *c != b'\r' && ctx.idx1 < NOECHO_BUF_SIZE {
+                                    ctx.buf1[ctx.idx1] = *c;
+                                    ctx.idx1 += 1;
+                                    serial.write(b"*").ok();
+                                } else {
+                                    serial.write(b"\r\nrepeat password:\r\n> ").ok();
+                                    ctx.init = InitState::AskPass2;
+                                }
+                            }
+                            InitState::AskPass2 => {
+                                if *c != b'\r' && ctx.idx2 < NOECHO_BUF_SIZE {
+                                    ctx.buf2[ctx.idx2] = *c;
+                                    ctx.idx2 += 1;
+                                    serial.write(b"*").ok();
+                                } else {
+                                    serial.write(b"\r\n").ok();
+                                    ctx.init = InitState::Idle;
+                                    task_init::spawn().unwrap();
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if ctx.open != OpenState::Idle {
+                        if *c != b'\r' && ctx.idx1 < NOECHO_BUF_SIZE {
+                            ctx.buf1[ctx.idx1] = *c;
+                            ctx.idx1 += 1;
+                            serial.write(b"*").ok();
+                        } else {
+                            serial.write(b"\r\n").ok();
+                            ctx.open = OpenState::Idle;
+                            task_open::spawn().unwrap();
+                        }
+                    } else if ctx.store != StoreState::Idle {
+                        match ctx.store {
+                            StoreState::AskUser => {
+                                if *c != b'\r' && ctx.idx1 < NOECHO_BUF_SIZE {
+                                    ctx.buf1[ctx.idx1] = *c;
+                                    ctx.idx1 += 1;
+                                    serial.write(&[*c]).ok();
+                                } else {
+                                    serial.write(b"\r\npassword:\r\n> ").ok();
+                                    ctx.store = StoreState::AskPass1;
+                                }
+                            }
+                            StoreState::AskPass1 => {
+                                if *c != b'\r' && ctx.idx2 < NOECHO_BUF_SIZE {
+                                    ctx.buf2[ctx.idx2] = *c;
+                                    ctx.idx2 += 1;
+                                    serial.write(b"*").ok();
+                                } else {
+                                    serial.write(b"\r\nrepeat password:\r\n> ").ok();
+                                    ctx.store = StoreState::AskPass2;
+                                }
+                            }
+                            StoreState::AskPass2 => {
+                                if *c != b'\r' && ctx.idx3 < NOECHO_BUF_SIZE {
+                                    ctx.buf3[ctx.idx3] = *c;
+                                    ctx.idx3 += 1;
+                                    serial.write(b"*").ok();
+                                } else {
+                                    serial.write(b"\r\n").ok();
+                                    ctx.store = StoreState::Idle;
+                                    task_store::spawn().unwrap();
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // keep runner at lower priority
+                        feed_runner::spawn(*c).unwrap();
+                    }
                 }
             }
         });
@@ -387,6 +503,67 @@ mod app {
         let mut menu_runner = cx.shared.menu_runner;
         (&mut menu_runner).lock(|menu_runner| {
             menu_runner.input_byte(c);
+        });
+    }
+
+    #[task(priority=2, shared=[menu_runner])]
+    fn task_init(cx: task_init::Context) {
+        let mut menu_runner = cx.shared.menu_runner;
+        (&mut menu_runner).lock(|menu_runner| {
+            let ctx = &mut menu_runner.context;
+            let pass1 = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
+            let pass2 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
+            write!(
+                ctx,
+                "pass1: {pass1}\r\n\
+                pass2: {pass2}\r\n",
+            )
+            .ok();
+            if pass1 != pass2 {
+                write!(ctx, "Error: passwords are not equal.\r\n").ok();
+                return;
+            }
+            ctx.pwd_store
+                .init(&mut ctx.serial, &pass1, monotonics::now().ticks());
+            menu_runner.prompt(true);
+        });
+    }
+
+    #[task(priority=2, shared=[menu_runner])]
+    fn task_open(cx: task_open::Context) {
+        let mut menu_runner = cx.shared.menu_runner;
+        (&mut menu_runner).lock(|menu_runner| {
+            let ctx = &mut menu_runner.context;
+            let pass = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
+            ctx.pwd_store
+                .open(&mut ctx.serial, &pass, monotonics::now().ticks());
+            menu_runner.prompt(true);
+        });
+    }
+
+    #[task(priority=2, shared=[menu_runner])]
+    fn task_store(cx: task_store::Context) {
+        let mut menu_runner = cx.shared.menu_runner;
+        (&mut menu_runner).lock(|menu_runner| {
+            let ctx = &mut menu_runner.context;
+            let name = ctx.opt_str.take().unwrap();
+            let user = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
+            let pass1 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
+            let pass2 = String::from_utf8_lossy(&ctx.buf3[..ctx.idx3]).to_string();
+            write!(
+                ctx,
+                "name: {name}\r\n\
+                input1: {user}\r\n\
+                input2: {pass1}\r\n\
+                input3: {pass2}\r\n",
+            )
+            .ok();
+            if pass1 != pass2 {
+                write!(ctx, "Error: passwords are not equal.\r\n").ok();
+                return;
+            }
+            ctx.pwd_store.store(&mut ctx.serial, &name, &user, &pass1);
+            menu_runner.prompt(true);
         });
     }
 
@@ -409,11 +586,7 @@ mod app {
                 help: Some("Initialize password store"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_init,
-                    parameters: &[
-                        menu::Parameter::Mandatory {
-                        parameter_name: "master_pwd",
-                        help: Some("Master password"),
-                    }],
+                    parameters: &[],
                 },
             },
 
@@ -422,11 +595,7 @@ mod app {
                 help: Some("Open password store"),
                 item_type: menu::ItemType::Callback {
                     function: cmd_open,
-                    parameters: &[
-                        menu::Parameter::Mandatory {
-                        parameter_name: "master_pwd",
-                        help: Some("Master password"),
-                    }],
+                    parameters: &[],
                 },
             },
 
@@ -448,14 +617,6 @@ mod app {
                         menu::Parameter::Mandatory {
                         parameter_name: "name",
                         help: Some("Name of secret"),
-                        },
-                        menu::Parameter::Mandatory {
-                        parameter_name: "user",
-                        help: Some("Username to store"),
-                        },
-                        menu::Parameter::Mandatory {
-                        parameter_name: "pass",
-                        help: Some("Password to store"),
                         },
                     ],
                 },
@@ -519,6 +680,15 @@ mod app {
             },
 
             &menu::Item {
+                command: "wait",
+                help: Some("List secrets"),
+                item_type: menu::ItemType::Callback {
+                    function: cmd_wait,
+                    parameters: &[],
+                },
+            },
+
+            &menu::Item {
                 command: "flash",
                 help: Some("Flash functions"),
                 item_type: menu::ItemType::Menu(
@@ -526,7 +696,7 @@ mod app {
                         label: "flash",
                         entry: None,
                         exit: None,
-                        items: &[        
+                        items: &[
                             &menu::Item {
                                 command: "read",
                                 help: Some("Read flash mem"),
@@ -603,26 +773,40 @@ mod app {
 
     fn cmd_init(
         _menu: &menu::Menu<MyMenuCtx>,
-        item: &menu::Item<MyMenuCtx>,
-        args: &[&str],
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
-        if let Ok(Some(master_pwd)) = menu::argument_finder(item, args, "master_pwd") {
-            let pws = &mut ctx.pwd_store;
-            pws.init(&mut ctx.serial, master_pwd, monotonics::now().ticks());
+        if ctx.pwd_store.is_initialized() {
+            write!(
+                ctx,
+                "Error: will not overwrite existing master key.\r\n\
+                If you want a fresh start, issue these commands from main menu:\r\n\
+                flash\r\n\
+                erase 0 0x800000\r\n\
+                exit\r\n"
+            )
+            .ok();
+            return;
         }
+        ctx.idx1 = 0;
+        ctx.idx2 = 0;
+        ctx.idx3 = 0;
+        write!(ctx, "master password:").ok();
+        ctx.init = InitState::AskPass1;
     }
 
     fn cmd_open(
         _menu: &menu::Menu<MyMenuCtx>,
-        item: &menu::Item<MyMenuCtx>,
-        args: &[&str],
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
         ctx: &mut MyMenuCtx,
     ) {
-        if let Ok(Some(master_pwd)) = menu::argument_finder(item, args, "master_pwd") {
-            let pws = &mut ctx.pwd_store;
-            pws.open(&mut ctx.serial, master_pwd, monotonics::now().ticks());
-        }
+        ctx.idx1 = 0;
+        ctx.idx2 = 0;
+        ctx.idx3 = 0;
+        write!(ctx, "master password:").ok();
+        ctx.open = OpenState::AskPass;
     }
 
     fn cmd_close(
@@ -647,21 +831,13 @@ mod app {
             write!(ctx, "Name not given.\r\n").ok();
             return;
         };
-        let user = if let Ok(Some(aa)) = menu::argument_finder(item, args, "user") {
-            aa
-        } else {
-            write!(ctx, "Username not given.\r\n").ok();
-            return;
-        };
-        let pass = if let Ok(Some(aa)) = menu::argument_finder(item, args, "pass") {
-            aa
-        } else {
-            write!(ctx, "Password not given.\r\n").ok();
-            return;
-        };
 
-            let pws = &mut ctx.pwd_store;
-            pws.store(&mut ctx.serial, name, user, pass);
+        ctx.opt_str = Some(name.to_string());
+        ctx.idx1 = 0;
+        ctx.idx2 = 0;
+        ctx.idx3 = 0;
+        write!(ctx, "username: ").ok();
+        ctx.store = StoreState::AskUser;
     }
 
     fn cmd_fetch(
@@ -743,6 +919,19 @@ mod app {
 
         let pws = &mut ctx.pwd_store;
         pws.search(&mut ctx.serial, srch.as_bytes());
+    }
+
+    fn cmd_wait(
+        _menu: &menu::Menu<MyMenuCtx>,
+        _item: &menu::Item<MyMenuCtx>,
+        _args: &[&str],
+        ctx: &mut MyMenuCtx,
+    ) {
+        ctx.idx1 = 0;
+        ctx.idx2 = 0;
+        ctx.idx3 = 0;
+        write!(ctx, "username: ").ok();
+        ctx.store = StoreState::AskUser;
     }
 
     fn parse_radix(ctx: &mut MyMenuCtx, addr: &str, radix: u32) -> Option<usize> {
