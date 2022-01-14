@@ -410,14 +410,6 @@ impl PwdStore {
         let encr_user = pbox.encrypt(username.as_bytes(), &[], &[]).unwrap();
         let encr_pass = pbox.encrypt(password.as_bytes(), &[], &[]).unwrap();
 
-        write!(
-            debug,
-            "Encrypted into {}+{} bytes\r\n",
-            encr_user.len(),
-            encr_pass.len()
-        )
-        .ok();
-
         let addr = match self.find_free(debug) {
             Some(a) => a,
             None => {
@@ -433,6 +425,7 @@ impl PwdStore {
                 return;
             }
         };
+
         self.flash.erase_sectors(addr as u32, 1).unwrap();
         self.flash
             .write_bytes(addr as u32, pwd.bytes_mut())
@@ -595,7 +588,7 @@ impl PwdStore {
 
         let rand_loc =
             self.rng.as_mut().unwrap().gen::<usize>() & (FLASH_SIZE / FLASH_BLOCK_SIZE - 1);
-        write!(debug, "First rand loc: 0x{:03x}\r\n", rand_loc).ok();
+        // write!(debug, "First rand loc: 0x{:03x}\r\n", rand_loc).ok();
         if let Some(addr) = self.find_free_from(debug, rand_loc * FLASH_BLOCK_SIZE) {
             return Some(addr);
         }
