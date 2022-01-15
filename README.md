@@ -18,6 +18,9 @@ This firmware makes your Black pill card into a physical & private password stas
 
 ## The hardware?
 
+![front side](https://raw.githubusercontent.com/sjm42/blackpill-usb-pwdstore/master/pics/blackpill1.jpg)
+
+![flip side](https://raw.githubusercontent.com/sjm42/blackpill-usb-pwdstore/master/pics/blackpill2.jpg)
 
 Obtain one of these, with the 8MB spi flash chip:
 
@@ -28,6 +31,7 @@ Obtain one of these, with the 8MB spi flash chip:
 Please refer to:
 
 [https://github.com/WeActTC/MiniSTM32F4x1](https://github.com/WeActTC/MiniSTM32F4x1)
+
 
 ## How to build
 
