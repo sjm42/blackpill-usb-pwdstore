@@ -83,9 +83,9 @@ Build it:
 
 The stm32f411 mcus have a built-in ROM bootloader that also works with onboard USB.
 
-Please refer to section 30, "TM32F411xx devices bootloader" on page 30:
+Please refer to **section 30**, *TM32F411xx devices bootloader* on page 30:
 
-[https://www.st.com/resource/en/application_note/cd00167594-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf]
+[https://www.st.com/resource/en/application_note/cd00167594-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf](https://www.st.com/resource/en/application_note/cd00167594-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf)
 
 
 Now boot the BlackPill into **dfu** mode:
@@ -131,23 +131,11 @@ Boot the card in DFU mode and press Enter.
 + dfu-util -a0 -s 0x08000000 -D target/out.bin
 dfu-util 0.9
 
-Copyright 2005-2009 Weston Schmidt, Harald Welte and OpenMoko Inc.
-Copyright 2010-2016 Tormod Volden and Stefan Schmidt
-This program is Free Software and has ABSOLUTELY NO WARRANTY
-Please report bugs to http://sourceforge.net/p/dfu-util/tickets/
-
-dfu-util: Invalid DFU suffix signature
-dfu-util: A valid DFU suffix will be required in a future dfu-util release!!!
+...
 Opening DFU capable USB device...
 ID 0483:df11
 Run-time device DFU version 011a
-Claiming USB DFU Interface...
-Setting Alternate Setting #0 ...
-Determining device status: state = dfuERROR, status = 10
-dfuERROR, clearing status
-Determining device status: state = dfuIDLE, status = 0
-dfuIDLE, continuing
-DFU mode device DFU version 011a
+...
 Device returned transfer size 2048
 DfuSe interface name: "Internal Flash  "
 Downloading to address = 0x08000000, size = 71792
@@ -166,7 +154,7 @@ Jan 15 15:33:12 bad kernel: [ 5297.410742] usb 1-6: Product: Password Trove
 Jan 15 15:33:12 bad kernel: [ 5297.410751] usb 1-6: SerialNumber: 4242
 ```
 
-You can use `minicom` or any other terminal program to access your new gadget.
+You can now use `minicom` or any other terminal program to access your new gadget.
 
 ## Configure a permanent device path
 
@@ -199,7 +187,7 @@ Now your Password Trove is always at `/dev/PwdTrove` when plugged in.
 
 ```text
 
-minicom -D /dev/ttyACM0
+minicom -D /dev/PwdTrove
 
 > help
 AVAILABLE ITEMS:
