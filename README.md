@@ -5,11 +5,11 @@ This firmware makes your Black pill card into a physical & private password stas
 * Using WeAct **BlackPill** with `STM32F411CEU6` with 8MB spi flash chip onboard
 * Creates a USB ACM serial port with a simple command line interface
 * Passwords are stored onto the spi flash encrypted with the **XChaCha20Poly1305 AEAD** encryption algorithm.
-* Encryption key is random 256 bits that is generated in the initialization, and stored in encrypted form using a master password set by the user.
+* Encryption key is random 256 bits generated in the initialization, and stored encrypted using a master password set by the user.
 * **If master password is lost, there is no known way to recover any data!**
 * Each password/secret has these values stored:
   * Flash location/address, example: `0x420`
-  * **Name** (plaintext, searchable) - max 250 bytes
+  * **Name** (plaintext on flash and **searchable**) - max 250 bytes
   * **Username** (encrypted) - max 256 bytes
   * **Password** (encrypted) - max 256 bytes
 * The location of new passwords is randomized to prevent premature flash wear.
@@ -33,7 +33,7 @@ Please refer to:
 [https://github.com/WeActTC/MiniSTM32F4x1](https://github.com/WeActTC/MiniSTM32F4x1)
 
 
-## How to build
+## How to build the firmware
 
 Please note: these instructions are only applicable as-is for **Ubuntu 20.04 LTS** Linux, but it should not be that hard to adjust for MacOS or Windows.
 
@@ -41,7 +41,7 @@ The Rust installation part would be different, and dfu programming probably need
 
 ### Install rust and necessary tools
 
-First, Rust compiler itself
+First, Rust compiler itself:
 
 `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rust-install.sh`
 
@@ -53,13 +53,13 @@ First, Rust compiler itself
 
 `./rust-install.sh`
 
-Install nightly toolchain and compile target for `Cortex-M4F`
+Install nightly toolchain and compile-target for `Cortex-M4F` ("thumbv7em-none-eabihf"):
 
 `rustup toolchain install nightly`
 
 `rustup target add thumbv7em-none-eabihf`
 
-Install tools for dfu programming
+Install tools for dfu programming:
 
 `sudo apt install -y dfu-util`
 
@@ -69,7 +69,7 @@ Install tools for dfu programming
 
 ### Build it
 
-Get the source
+Get the source:
 
 `git clone https://github.com/sjm42/blackpill-usb-pwdstore.git`
 
@@ -81,10 +81,17 @@ Build it:
 
 ### Upload the firmware i.e. program the chip
 
-Boot the BlackPill into dfu mode:
+The stm32f411 mcus have a built-in ROM bootloader that also works with onboard USB.
+
+Please refer to section 30, "TM32F411xx devices bootloader" on page 30:
+
+[https://www.st.com/resource/en/application_note/cd00167594-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf]
+
+
+Now boot the BlackPill into **dfu** mode:
 
 * press both `NRST` and `BOOT0` buttons for one second,
-* release `NRST` while still keeping `BOOT0` down for a second longer. With a little practice, this is easy with one finger.
+* release `NRST` while still keeping `BOOT0` down for a second longer. With practice, it's easy with one finger.
 * release `BOOT0` button.
 
 You should see something like this in kernel log:
@@ -112,7 +119,7 @@ Found DFU: [0483:df11] ver=2200, devnum=7, cfg=1, intf=0, path="1-6", alt=1, nam
 Found DFU: [0483:df11] ver=2200, devnum=7, cfg=1, intf=0, path="1-6", alt=0, name="@Internal Flash  /0x08000000/04*016Kg,01*064Kg,03*128Kg", serial="337938943430"
 ```
 
-Program the chip:
+Now actually program the chip:
 
 ```text
 ./build dfu
@@ -150,7 +157,7 @@ File downloaded successfully
 + set +x
 ```
 
-Now reset the chip i.e. press `NRST` and you should see something like this in kernel messages:
+To start the new firmware, reset by pushing `NRST` shortly and you should see some kernel messages:
 
 ```text
 Jan 15 15:33:12 bad kernel: [ 5297.255112] usb 1-6: new full-speed USB device number 8 using xhci_hcd
@@ -163,6 +170,8 @@ You can use `minicom` or any other terminal program to access your new gadget.
 
 ## Configure a permanent device path
 
+You might want to configure your Linux to have the gadget always on same device path.
+
 ```bash
 cat >/etc/udev/rules.d/pwd-trove.rules <<'EOF'
 # USB vu meter
@@ -172,6 +181,8 @@ EOF
 service udev restart
 udevadm control --reload-rules
 ```
+
+Now your Password Trove is always at `/dev/PwdTrove` when plugged in.
 
 ## Other useful links
 
@@ -184,7 +195,7 @@ udevadm control --reload-rules
 [https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm)
 
 
-## Example use
+## Example session
 
 ```text
 
