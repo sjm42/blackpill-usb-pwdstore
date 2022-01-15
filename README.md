@@ -4,7 +4,7 @@ This firmware makes your Black pill card into a physical & private password stas
 
 * Using WeAct **BlackPill** with `STM32F411CEU6` with 8MB spi flash chip onboard
 * Creates a USB ACM serial port with a simple command line interface
-* Passwords are stored onto the spi flash encrypted with the RustCrypto **XChaCha20Poly1305 AEAD** encryption algorithm.
+* Passwords are stored onto the spi flash encrypted with the **XChaCha20Poly1305 AEAD** encryption algorithm.
 * Encryption key is random 256 bits that is generated in the initialization, and stored in encrypted form using a master password set by the user.
 * **If master password is lost, there is no known way to recover any data!**
 * Each password/secret has these values stored:
@@ -151,22 +151,40 @@ Now reset the chip i.e. press `NRST` and you should see something like this in k
 ```text
 Jan 15 15:33:12 bad kernel: [ 5297.255112] usb 1-6: new full-speed USB device number 8 using xhci_hcd
 Jan 15 15:33:12 bad kernel: [ 5297.410722] usb 1-6: New USB device found, idVendor=16c0, idProduct=27dd, bcdDevice= 0.10
-Jan 15 15:33:12 bad kernel: [ 5297.410742] usb 1-6: Product: Password Store
+Jan 15 15:33:12 bad kernel: [ 5297.410742] usb 1-6: Product: Password Trove
 Jan 15 15:33:12 bad kernel: [ 5297.410751] usb 1-6: SerialNumber: 4242
 ```
 
 You can use `minicom` or any other terminal program to access your new gadget.
 
-```text
-minicom -D /dev/ttyACM0
-(press enter for a few times to check connection)
+## Configure a permanent device path
 
-> status
-*** blackpill-usb-pwdstore ***
-Version: 0.1.0
-Source timestamp: 2022-01-15T13:28:53Z
-Compiler: rustc 1.60.0-nightly (ad46af247 2022-01-14)
-Status: CLOSED
+```bash
+cat >/etc/udev/rules.d/pwd-trove.rules <<'EOF'
+# USB vu meter
+ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="27dd", ATTRS{product}=="Password Trove", MODE="666", GROUP="plugdev", SYMLINK="PwdTrove"
+# EOF
+EOF
+service udev restart
+udevadm control --reload-rules
+```
+
+## Other useful links
+
+[https://github.com/WeActTC/MiniSTM32F4x1/tree/master/SDK/CMSIS-DAP](https://github.com/WeActTC/MiniSTM32F4x1/tree/master/SDK/CMSIS-DAP)
+
+[https://github.com/koendv/blackmagic-blackpill](https://github.com/koendv/blackmagic-blackpill)
+
+[https://github.com/blacksphere/blackmagic/wiki/Useful-GDB-commands](https://github.com/blacksphere/blackmagic/wiki/Useful-GDB-commands)
+
+[https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm)
+
+
+## Example use
+
+```text
+
+minicom -D /dev/ttyACM0
 
 > help
 AVAILABLE ITEMS:
@@ -184,15 +202,129 @@ AVAILABLE ITEMS:
   flash
   help [ <command> ]
 
-> 
+> status
+*** blackpill-usb-pwdstore ***
+Version: 0.1.0
+Source timestamp: 2022-01-15T13:28:53Z
+Compiler: rustc 1.60.0-nightly (ad46af247 2022-01-14)
+Status: CLOSED
+
+> init
+master password:
+> *********************
+repeat password:
+> *********************
+New master key generated & saved successfully. Password store opened.
+
+> list
+loc   name
+----------
+0x000 MASTER
+
+> store account1
+username: 
+> foo1@example.com
+password:
+> ******************
+repeat password:
+> ******************
+Stored to loc 0x0d5
+
+> store account2
+username: 
+> foo2@example.com
+password:
+> ******************
+repeat password:
+> ******************
+Stored to loc 0x703
+
+> store xyzzy123
+username: 
+> xyzzy@example.com
+password:
+> ******************
+repeat password:
+> ******************
+Stored to loc 0x0e8
+
+> list
+loc   name
+----------
+0x000 MASTER
+0x0d5 account1
+0x0e8 xyzzy123
+0x703 account2
+
+> fetch 42
+No valid data in this location.
+
+> fetch 0x703
+name: account2
+user: foo2@example.com
+pass: verysecretpassword
+
+> drop 420
+No valid data in this location.
+
+> drop 0x0d5
+Dropped loc 0x0d5
+
+> list
+loc   name
+----------
+0x000 MASTER
+0x0e8 xyzzy123
+0x703 account2
+
+> store another1
+username: 
+> another@example.com
+password:
+> ******************
+repeat password:
+> ******************
+Stored to loc 0x113
+
+> list
+loc   name
+----------
+0x000 MASTER
+0x0e8 xyzzy123
+0x113 another1
+0x703 account2
+
+> search 2
+loc   name
+----------
+0x0e8 xyzzy123
+0x703 account2
+
+> search xyz
+loc   name
+----------
+0x0e8 xyzzy123
+
+> close
+Password store closed.
+
+> list
+Error: password store is not open.
+
+> open
+master password:
+> *********************
+Master key decrypted successfully. Password store opened.
+
+> list
+loc   name
+----------
+0x000 MASTER
+0x0e8 xyzzy123
+0x113 another1
+0x703 account2
+
+> close
+Password store closed.
+
 ```
-
-## Other useful links
-
-[https://github.com/WeActTC/MiniSTM32F4x1/tree/master/SDK/CMSIS-DAP](https://github.com/WeActTC/MiniSTM32F4x1/tree/master/SDK/CMSIS-DAP)
-
-[https://github.com/koendv/blackmagic-blackpill](https://github.com/koendv/blackmagic-blackpill)
-
-[https://github.com/blacksphere/blackmagic/wiki/Useful-GDB-commands](https://github.com/blacksphere/blackmagic/wiki/Useful-GDB-commands)
-
-[https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm)

@@ -266,7 +266,7 @@ mod app {
             UsbVidPid(0x16c0, 0x27dd),
         )
         .manufacturer("Siuro Hacklab")
-        .product("Password Store")
+        .product("Password Trove")
         .serial_number("4242")
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();

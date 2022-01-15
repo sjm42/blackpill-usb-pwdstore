@@ -1,9 +1,13 @@
 [package]
-authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
-edition = "2021"
-readme = "README.md"
 name = "blackpill-usb-pwdstore"
 version = "0.1.0"
+authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
+description = "USB Password Trove for BlackPill card (stm32f411)"
+repository = "https://github.com/sjm42/blackpill-usb-pwdstore"
+readme = "README.md"
+keywords = ["usb", "password", "embedded", "blackpill", "stm32"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
 
 [features]
 default = ["black_pill"]
