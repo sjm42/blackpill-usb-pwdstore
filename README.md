@@ -2,7 +2,7 @@
 
 This firmware makes your Black pill card into a physical & private password stash.
 
-* Using **Black pill** with `STM32F411` with 8MB spi flash chip onboard
+* Using WeAct **BlackPill** with `STM32F411CEU6` with 8MB spi flash chip onboard
 * Creates a USB ACM serial port with a simple command line interface
 * Passwords are stored onto the spi flash encrypted with the RustCrypto **XChaCha20Poly1305 AEAD** encryption algorithm.
 * Encryption key is random 256 bits that is generated in the initialization, and stored in encrypted form using a master password set by the user.
@@ -77,7 +77,7 @@ Build it:
 
 ### Upload the firmware i.e. program the chip
 
-Boot the blackpill into dfu mode:
+Boot the BlackPill into dfu mode:
 
 * press both `NRST` and `BOOT0` buttons for one second,
 * release `NRST` while still keeping `BOOT0` down for a second longer. With a little practice, this is easy with one finger.
