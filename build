@@ -31,7 +31,7 @@ f*)
     set -x
     cargo flash $flags --release --chip $chip
     ;;
-d)
+d*)
     set -x
     cargo objcopy $flags --release -- -O binary target/out.bin
     set +x
