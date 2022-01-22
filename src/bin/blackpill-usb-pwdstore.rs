@@ -178,30 +178,29 @@ mod app {
         write!(ser_tx, "* Clocks:\r\n").ok();
         write!(
             ser_tx,
-            "  requested sysclk {:?} with hse at {:?}\r\n",
-            sysclk, hse
+            "  requested sysclk {sysclk:?} with hse at {hse:?}\r\n",
         )
         .ok();
         write!(
             ser_tx,
-            "  sysclk: {:?}\r\n  hclk: {:?}\r\n",
-            clocks.sysclk(),
-            clocks.hclk()
+            "  sysclk: {sysclk:?}\r\n  hclk: {hclk:?}\r\n",
+            sysclk = clocks.sysclk(),
+            hclk = clocks.hclk()
         )
         .ok();
         write!(
             ser_tx,
-            "  pclk1: {:?}\r\n  pclk2: {:?}\r\n",
-            clocks.pclk1(),
-            clocks.pclk2()
+            "  pclk1: {pclk1:?}\r\n  pclk2: {pclk2:?}\r\n",
+            pclk1 = clocks.pclk1(),
+            pclk2 = clocks.pclk2()
         )
         .ok();
         write!(
             ser_tx,
-            "  pll48clk: {:?}\r\n  ppre1: {:?}\r\n  ppre2: {:?}\r\n",
-            clocks.pll48clk(),
-            clocks.ppre1(),
-            clocks.ppre2()
+            "  pll48clk: {pll48clk:?}\r\n  ppre1: {ppre1:?}\r\n  ppre2: {ppre2:?}\r\n",
+            pll48clk = clocks.pll48clk(),
+            ppre1 = clocks.ppre1(),
+            ppre2 = clocks.ppre2()
         )
         .ok();
 
@@ -273,7 +272,7 @@ mod app {
 
         write!(ser_tx, "Flash read JEDEC id...\r\n").ok();
         let jedec_id = flash.read_jedec_id().unwrap();
-        write!(ser_tx, "Flash jedec id: {:?}\r\n\n", jedec_id).ok();
+        write!(ser_tx, "Flash jedec id: {jedec_id:?}\r\n\n").ok();
 
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
         // Start the hardware watchdog
@@ -836,7 +835,7 @@ mod app {
             if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
-                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
+                write!(ctx, "Could not parse loc: \"{aa}\".\r\n").ok();
                 return;
             }
         } else {
@@ -858,7 +857,7 @@ mod app {
             if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
-                write!(ctx, "Could not parse loc: \"{}\".\r\n", aa).ok();
+                write!(ctx, "Could not parse loc: \"{aa}\".\r\n").ok();
                 return;
             }
         } else {
@@ -923,7 +922,7 @@ mod app {
     fn parse_radix(ctx: &mut MyMenuCtx, addr: &str, radix: u32) -> Option<usize> {
         match usize::from_str_radix(addr, radix) {
             Err(e) => {
-                write!(ctx, "Address (radix {}) parse error: {:?}\r\n", radix, e).ok();
+                write!(ctx, "Address (radix {radix}) parse error: {e:?}\r\n").ok();
                 None
             }
             Ok(a) => Some(a),
@@ -956,7 +955,7 @@ mod app {
             if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
-                write!(ctx, "Could not parse addr: \"{}\".\r\n", aa).ok();
+                write!(ctx, "Could not parse addr: \"{aa}\".\r\n").ok();
                 return;
             }
         } else {
@@ -966,8 +965,7 @@ mod app {
         if addr >= FLASH_SIZE {
             write!(
                 ctx,
-                "Error: addr {} (0x{:x}) is larger than flash size {} (0x{:x}).\r\n",
-                addr, addr, FLASH_SIZE, FLASH_SIZE
+                "Error: addr {addr} (0x{addr:x}) is larger than flash size {FLASH_SIZE} (0x{FLASH_SIZE:x}).\r\n",
             )
             .ok();
             return;
@@ -978,7 +976,7 @@ mod app {
             if let Some(ret) = parse_num(ctx, al) {
                 len = ret;
             } else {
-                write!(ctx, "Could not parse len: \"{}\".\r\n", al).ok();
+                write!(ctx, "Could not parse len: \"{al}\".\r\n").ok();
                 return;
             }
         }
@@ -986,8 +984,8 @@ mod app {
             let new_len = FLASH_SIZE - addr;
             write!(
                 ctx,
-                "Warning: len {} (0x{:x}) reaches beyond flash size {} (0x{:x}) and was trucated to {} (0x{:x}).\r\n",
-                len, len, FLASH_SIZE, FLASH_SIZE, new_len, new_len
+                "Warning: len {len} (0x{len:x}) reaches beyond flash size {FLASH_SIZE} (0x{FLASH_SIZE:x}) \
+                and was trucated to {new_len} (0x{new_len:x}).\r\n",
             )
             .ok();
             len = new_len;
@@ -998,7 +996,7 @@ mod app {
             if let Some(ret) = parse_num(ctx, data_s) {
                 fill_byte = Some(ret as u8);
             } else {
-                write!(ctx, "Could not parse data: \"{}\".\r\n", data_s).ok();
+                write!(ctx, "Could not parse data: \"{data_s}\".\r\n").ok();
                 return;
             }
         }
@@ -1014,12 +1012,8 @@ mod app {
 
         write!(
             ctx,
-            "\r\n* {}ing {} bytes at 0x{:06x} in {} chunks, last {} bytes:\r\n",
+            "\r\n* {}ing {len} bytes at 0x{addr:06x} in {chunks} chunks, last {last_sz} bytes:\r\n",
             if mode_write { "Writ" } else { "Read" },
-            len,
-            addr,
-            chunks,
-            last_sz
         )
         .ok();
 
@@ -1047,13 +1041,12 @@ mod app {
                     .write_bytes(mem_addr as u32, &mut buf[..mem_len])
                 {
                     Ok(w) => {
-                        write!(ctx, "#wait {}\r\n", w).ok();
+                        write!(ctx, "#wait {w}\r\n").ok();
                     }
                     Err(e) => {
                         write!(
                             ctx,
-                            "\r\n### Flash write failed at 0x{:06x} ({:?}) - abort.\r\n",
-                            mem_addr, e
+                            "\r\n### Flash write failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
                         )
                         .ok();
                         return;
@@ -1067,8 +1060,7 @@ mod app {
                 {
                     write!(
                         ctx,
-                        "\r\n### Flash read failed at 0x{:06x} ({:?}) - abort.\r\n",
-                        mem_addr, e
+                        "\r\n### Flash read failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
                     )
                     .ok();
                     return;
@@ -1088,13 +1080,13 @@ mod app {
         ctx: &mut MyMenuCtx,
     ) {
         let jedec_id = ctx.pwd_store.flash.read_jedec_id().unwrap();
-        write!(ctx, "\r\nFlash jedec id: {:?}\r\n", jedec_id).ok();
+        write!(ctx, "\r\nFlash jedec id: {jedec_id:?}\r\n").ok();
 
         let addr = if let Ok(Some(aa)) = menu::argument_finder(item, args, "addr") {
             if let Some(a) = parse_num(ctx, aa) {
                 a
             } else {
-                write!(ctx, "Could not parse addr: \"{}\".\r\n", aa).ok();
+                write!(ctx, "Could not parse addr: \"{aa}\".\r\n").ok();
                 return;
             }
         } else {
@@ -1104,8 +1096,8 @@ mod app {
         if addr % FLASH_BLOCK_SIZE != 0 {
             write!(
                 ctx,
-                "Error: addr {} (0x{:x}) is not multiple of {} (0x{:02x}).\r\n",
-                addr, addr, FLASH_BLOCK_SIZE, FLASH_BLOCK_SIZE
+                "Error: addr {addr} (0x{addr:x}) is not multiple of \
+                {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:02x}).\r\n",
             )
             .ok();
             return;
@@ -1113,8 +1105,8 @@ mod app {
         if addr >= FLASH_SIZE {
             write!(
                 ctx,
-                "Error: addr {} (0x{:x}) is larger than flash size {} (0x{:x}).\r\n",
-                addr, addr, FLASH_SIZE, FLASH_SIZE
+                "Error: addr {addr} (0x{addr:x}) is larger than flash size \
+                {FLASH_SIZE} (0x{FLASH_SIZE:x}).\r\n",
             )
             .ok();
             return;
@@ -1125,15 +1117,15 @@ mod app {
             if let Some(ret) = parse_num(ctx, al) {
                 len = ret;
             } else {
-                write!(ctx, "Could not parse len: \"{}\".\r\n", al).ok();
+                write!(ctx, "Could not parse len: \"{al}\".\r\n").ok();
                 return;
             }
         }
         if len % FLASH_BLOCK_SIZE != 0 {
             write!(
                 ctx,
-                "Error: len {} (0x{:x}) is not multiple of {} (0x{:02x}).\r\n",
-                len, len, FLASH_BLOCK_SIZE, FLASH_BLOCK_SIZE
+                "Error: len {len} (0x{len:x}) is not multiple of \
+                {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:x}).\r\n",
             )
             .ok();
             return;
@@ -1142,8 +1134,9 @@ mod app {
             let new_len = FLASH_SIZE - addr;
             write!(
                 ctx,
-                "Warning: len {} (0x{:x}) reaches beyond flash size {} (0x{:x}) and was trucated to {} (0x{:x}).\r\n",
-                len, len, FLASH_SIZE, FLASH_SIZE, new_len, new_len
+                "Warning: len {len} (0x{len:x}) reaches beyond flash size \
+                {FLASH_SIZE} (0x{FLASH_SIZE:x}) and was trucated to \
+                {new_len} (0x{new_len:x}).\r\n",
             )
             .ok();
             len = new_len;
@@ -1152,8 +1145,7 @@ mod app {
         let sectors = len / FLASH_BLOCK_SIZE;
         write!(
             ctx,
-            "* Erasing {} (0x{:x}) bytes at 0x{:06x} in {} sectors:\r\n",
-            len, len, addr, sectors
+            "* Erasing {len} (0x{len:x}) bytes at 0x{addr:06x} in {sectors} sectors:\r\n",
         )
         .ok();
 
@@ -1161,13 +1153,12 @@ mod app {
             let mem_addr = addr + c * FLASH_BLOCK_SIZE;
             match ctx.pwd_store.flash.erase_sectors(mem_addr as u32, 1) {
                 Ok(w) => {
-                    write!(ctx, "\r#e 0x{:06x} #w {}      ", mem_addr, w).ok();
+                    write!(ctx, "\r#e 0x{mem_addr:06x} #w {w}      ").ok();
                 }
                 Err(e) => {
                     write!(
                         ctx,
-                        "\r\n### Flash erase failed at 0x{:06x} ({:?}) - abort.\r\n",
-                        mem_addr, e
+                        "\r\n### Flash erase failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
                     )
                     .ok();
                     return;

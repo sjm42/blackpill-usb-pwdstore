@@ -534,12 +534,7 @@ impl PwdStore {
             }
 
             if let Err(e) = self.flash.read(addr as u32, scan_buf.bytes_mut()) {
-                write!(
-                    debug,
-                    "\r\n### Flash read error at 0x{:06x}: {:?}\r\n",
-                    addr, e
-                )
-                .ok();
+                write!(debug, "\r\n### Flash read error at 0x{addr:06x}: {e:?}\r\n",).ok();
                 continue;
             }
 
@@ -607,7 +602,7 @@ impl PwdStore {
 
         write!(debug, "loc   name\r\n----------\r\n").ok();
         for (addr, name) in self {
-            write!(debug, "0x{:03x} {}\r\n", addr / FLASH_BLOCK_SIZE, &name).ok();
+            write!(debug, "0x{:03x} {name}\r\n", addr / FLASH_BLOCK_SIZE).ok();
         }
     }
 
@@ -630,7 +625,7 @@ impl PwdStore {
         write!(debug, "loc   name\r\n----------\r\n").ok();
         for (addr, name) in self {
             if name.as_bytes().windows(len).any(|window| window == srch) {
-                write!(debug, "0x{:03x} {}\r\n", addr / FLASH_BLOCK_SIZE, &name).ok();
+                write!(debug, "0x{:03x} {name}\r\n", addr / FLASH_BLOCK_SIZE).ok();
             }
         }
     }
