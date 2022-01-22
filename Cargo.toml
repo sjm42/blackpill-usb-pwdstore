@@ -40,7 +40,6 @@ privatebox = "0"
 menu = "0"
 no-std-compat = { version = "0", features = ["alloc"] }
 
-
 # this lets you use `cargo fix`!
 #[[bin]]
 #name = "blackpill-usb-pwdstore"
