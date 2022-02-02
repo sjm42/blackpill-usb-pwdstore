@@ -258,7 +258,7 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#d51aaf3ad3ffb2314f8885515e223ca2f591b5a3"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#c3c75f2200ebc32ca35403c528914baa8e025bed"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m 0.7.4",
@@ -272,7 +272,7 @@ dependencies = [
 [[package]]
 name = "cortex-m-rtic-macros"
 version = "1.0.0"
-source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#d51aaf3ad3ffb2314f8885515e223ca2f591b5a3"
+source = "git+https://github.com/rtic-rs/cortex-m-rtic.git#c3c75f2200ebc32ca35403c528914baa8e025bed"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -348,6 +348,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22e489f95411a50db661b18e072459bbdc084de522a8530e4709bef593bf3c18"
 dependencies = [
  "gcd",
+]
+
+[[package]]
+name = "fugit-timer"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9607bfc4c388f9d629704f56ede4a007546cad417b3bcd6fc7c87dc7edce04a"
+dependencies = [
+ "fugit",
+ "nb 1.0.0",
 ]
 
 [[package]]
@@ -432,9 +442,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.113"
+version = "0.2.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eef78b64d87775463c549fbd80e19249ef436ea3bf1de2a1eb7e717ec7fab1e9"
+checksum = "565dbd88872dbe4cc8a46e527f26483c1d1f7afa6b884a3bd6cd893d4f98da74"
 
 [[package]]
 name = "linked_list_allocator"
@@ -444,9 +454,9 @@ checksum = "822add9edb1860698b79522510da17bef885171f75aa395cff099d770c609c24"
 
 [[package]]
 name = "lock_api"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "712a4d093c9976e24e7dbca41db895dabcbac38eb5f4045393d17a95bdfb1109"
+checksum = "88943dd7ef4a2e5a4bfa2753aaab3013e34ce2533d1996fb18ef591e315e2b3b"
 dependencies = [
  "scopeguard",
 ]
@@ -843,15 +853,17 @@ dependencies = [
 [[package]]
 name = "stm32f4xx-hal"
 version = "0.11.1"
-source = "git+https://github.com/stm32-rs/stm32f4xx-hal.git#9928bb33b4cb8c073a622b9ef186d32117a985a2"
+source = "git+https://github.com/stm32-rs/stm32f4xx-hal.git#41d8dd93a5a9e90dc7afbe70b99f8b8496ea4a55"
 dependencies = [
  "bare-metal 1.0.0",
+ "bitflags",
  "cast",
  "cortex-m 0.7.4",
  "cortex-m-rt",
  "embedded-dma",
  "embedded-hal",
  "fugit",
+ "fugit-timer",
  "nb 1.0.0",
  "rand_core",
  "rtcc",
