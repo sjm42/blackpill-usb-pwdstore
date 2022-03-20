@@ -44,7 +44,7 @@ mod app {
     use hal::otg_fs::{UsbBus, UsbBusType, USB};
     use hal::pac::USART1;
     use hal::watchdog::IndependentWatchdog;
-    use hal::{delay::Delay, gpio::*, prelude::*, serial, spi::*};
+    use hal::{gpio::*, prelude::*, serial, spi::*};
     // use embedded_hal::digital::v2::OutputPin;
 
     const NOECHO_BUF_SIZE: usize = 256;
@@ -150,8 +150,8 @@ mod app {
         let rcc = dp.RCC.constrain();
 
         // Setup system clocks
-        let hse = 25.mhz();
-        let sysclk = 84.mhz();
+        let hse = 25.MHz();
+        let sysclk = 84.MHz();
         let clocks = rcc
             .cfgr
             .use_hse(hse)
@@ -160,7 +160,7 @@ mod app {
             .freeze();
 
         // Initialize the monotonic
-        let mono = Systick::new(cx.core.SYST, clocks.sysclk().0);
+        let mono = Systick::new(cx.core.SYST, clocks.sysclk().raw());
 
         let mut syscfg = dp.SYSCFG.constrain();
         let gpioa = dp.GPIOA.split();
@@ -237,13 +237,13 @@ mod app {
                     polarity: Polarity::IdleHigh,
                     phase: Phase::CaptureOnSecondTransition,
                 },
-                16.mhz(),
+                16.MHz(),
                 &clocks,
             )
         };
 
         // Create a delay abstraction based on general-purpose 32-bit timer TIM5
-        let delay = Delay::tim5(dp.TIM5, &clocks);
+        let delay = hal::timer::FTimerUs::new(dp.TIM5, &clocks).delay();
         let mut flash = Flash::init(spi, cs, delay).unwrap();
 
         // *** Begin USB setup ***
@@ -276,7 +276,7 @@ mod app {
 
         let mut watchdog = IndependentWatchdog::new(dp.IWDG);
         // Start the hardware watchdog
-        watchdog.start(500.ms());
+        watchdog.start(500u32.millis());
 
         let pwd_store = PwdStore::new(flash, watchdog);
 

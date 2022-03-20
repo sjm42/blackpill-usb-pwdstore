@@ -6,7 +6,6 @@ extern crate no_std_compat as std;
 
 use alloc::string::*;
 use core::fmt;
-use cortex_m::prelude::_embedded_hal_watchdog_Watchdog;
 use no_std_compat::borrow::Cow;
 use privatebox::PrivateBox;
 use rand::{prelude::*, SeedableRng};
