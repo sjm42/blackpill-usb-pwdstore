@@ -4,42 +4,76 @@ set -e
 
 usage()
 {
-    echo "Usage: $0 <build | clippy | flash | dfu>"
+	echo "Usage: $0 b|k|n|r|d b|c|f|d|n"
+	echo "  Hardware: b = Blue pill, k = Blackpill, n = Nucleo F411, r = nRf52840-dongle, d = nrf52840-Dk"
+	echo "  Operation: b = build, c = clippy, f = cargo flash, d = dfu flash, n =nrfdfu flash"
     exit 1
 }
 
-tgt="thumbv7em-none-eabihf"
-chip="STM32F411CEUx"
-flags="--target $tgt"
-
 case "$1" in
-b*)
-    # release build
-    set -x
-    cargo build $flags --release
+K*|bla*|k*)
+    feat="black_pill"
+    tgt="thumbv7em-none-eabihf"
+    chip="STM32F411CEUx"
+    dfu_opt="-a 0 -s 0x8000000"
     ;;
-c*)
-    set -x
-    cargo clippy $flags
+B*|b*)
+    feat="blue_pill"
+    tgt="thumbv7m-none-eabi"
+    chip="STM32F103C8"
+    dfu_opt="-a 2 -s 0x8002000"
     ;;
-g*)
-    # debug build
+N*|n*)
+    feat="nucleo_f411"
+    tgt="thumbv7em-none-eabihf"
+    chip="STM32F411RETx"
+    ;;
+nR*|R*|r*)
+    feat="nrf52840_dongle"
+    tgt="thumbv7em-none-eabihf"
+    chip="nRF52840_xxAA"
+    ;;
+D*|d*)
+    feat="nrf52840_dk"
+    tgt="thumbv7em-none-eabihf"
+    chip="nRF52840_xxAA"
+    ;;
+*)
+    usage
+    ;;
+esac
+
+flags="--release --no-default-features --features $feat --target $tgt"
+case "$2" in
+B*|b*)
     set -x
     cargo build $flags
     ;;
-f*)
+C*|c*)
     set -x
-    cargo flash $flags --release --chip $chip
+    cargo clippy $flags
     ;;
-d*)
+F*|f*)
     set -x
-    cargo objcopy $flags --release -- -O binary target/out.bin
+    cargo flash $flags --chip $chip
+    ;;
+D*|d*)
+    if [ $feat = nrf52840 ]
+    then
+      echo Use nrfdfu with nRF52840, not dfu.
+      usage
+    fi
+    set -x
+    cargo objcopy $flags -- -O binary target/out.bin
     set +x
     echo Boot the card in DFU mode and press Enter.
     read
     set -x
-    dfu-util -a0 -s 0x08000000 -D target/out.bin
-    set +x
+    dfu-util $dfu_opt -D target/out.bin
+    ;;
+N*|n*)
+    set -x
+    nrfdfu target/$tgt/release/cortex-m-test2
     ;;
 *)
     usage
