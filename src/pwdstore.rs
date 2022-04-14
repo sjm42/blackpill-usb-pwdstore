@@ -23,9 +23,9 @@ type MyFlash = Flash<
     Spi<
         SPI1,
         (
-            Pin<Alternate<PushPull, 5>, 'A', 5>,
-            Pin<Alternate<PushPull, 5>, 'A', 6>,
-            Pin<Alternate<PushPull, 5>, 'A', 7>,
+            Pin<'A', 5, Alternate<5, PushPull>>,
+            Pin<'A', 6, Alternate<5, PushPull>>,
+            Pin<'A', 7, Alternate<5, PushPull>>,
         ),
         TransferModeNormal,
     >,

@@ -119,7 +119,7 @@ dependencies = [
  "spi-memory",
  "stm32-usbd",
  "stm32f4",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.13.0",
  "systick-monotonic",
  "usb-device",
  "usbd-serial",
@@ -251,9 +251,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m-rtic"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58256ecbc0008bd47e8b98da5313f076072b0d7eb3c7f7439a11de05a8ab2751"
+checksum = "aaaec064590e0f24c3b699337e3c223ba0c7855adb0b33915a48cc1c1a44904c"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m 0.7.4",
@@ -266,9 +266,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m-rtic-macros"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ba355d1639cf8df7c0658f01bd8952d11d49a029309118787eb54afc47a6cf8"
+checksum = "7671d1bfc0fc110931984ec6dad760c3f1e9159fd3c022a696afc20485f1471e"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -820,7 +820,7 @@ source = "git+https://github.com/sjm42/spi-memory.git#d70d320d60587b0b18346fc71d
 dependencies = [
  "bitflags",
  "embedded-hal 0.2.7",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.12.0",
 ]
 
 [[package]]
@@ -878,6 +878,30 @@ dependencies = [
  "fugit",
  "fugit-timer",
  "hd44780-driver",
+ "nb 1.0.0",
+ "rand_core",
+ "stm32f4",
+ "synopsys-usb-otg",
+ "time 0.3.9",
+ "void",
+]
+
+[[package]]
+name = "stm32f4xx-hal"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e722ebf64a7c39a5ff08f99ccc01455226fa3b2a1778bde7e91facbf2fffaac"
+dependencies = [
+ "bare-metal 1.0.0",
+ "bitflags",
+ "cortex-m 0.7.4",
+ "cortex-m-rt",
+ "embedded-dma",
+ "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0-alpha.7",
+ "embedded-storage",
+ "fugit",
+ "fugit-timer",
  "nb 1.0.0",
  "rand_core",
  "stm32f4",

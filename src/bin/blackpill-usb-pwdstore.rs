@@ -127,7 +127,7 @@ mod app {
         menu_runner: menu::Runner<'static, MyMenuCtx>,
         ser_tx: SerialTx,
         addr: u32,
-        pin_button: ErasedPin<Input<PullUp>>,
+        pin_button: ErasedPin<Input>,
         pin_led: ErasedPin<Output<PushPull>>,
         led_on: bool,
         button_down: bool,
