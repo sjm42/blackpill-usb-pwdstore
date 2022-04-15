@@ -15,9 +15,9 @@ black_pill = ["stm32f4xx-hal"]
 
 [dependencies.stm32f4xx-hal]
 optional = true
-# version = "0.13"
+version = "0.12"
 features = ["rt", "stm32f411", "usb_fs"]
-git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
+# git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
 
 [dependencies]
 cortex-m = "0.7"
@@ -30,14 +30,14 @@ systick-monotonic = "1.0"
 alloc-cortex-m = "0.4"
 # alloc-cortex-m = { git = "https://github.com/rust-embedded/alloc-cortex-m.git" }
 
-stm32f4 = "0"
+# stm32f4 = "0"
 embedded-hal = "0.2.7"
 stm32-usbd = "0"
 usb-device = "0"
 usbd-serial = "0"
 panic-halt = "0"
-spi-memory = { git = "https://github.com/sjm42/spi-memory.git" }
-# spi-memory = { path = "../spi-memory" }
+# spi-memory = { git = "https://github.com/sjm42/spi-memory.git" }
+spi-memory = { path = "../spi-memory" }
 fugit = "0"
 rand = { version = "0", default-features = false, features = ["std_rng"] }
 sha2 = { version = "0", default-features = false }
