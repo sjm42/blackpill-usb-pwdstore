@@ -101,7 +101,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "blackpill-usb-pwdstore"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloc-cortex-m",
  "build-data",
@@ -119,7 +119,7 @@ dependencies = [
  "spi-memory",
  "stm32-usbd",
  "stm32f4",
- "stm32f4xx-hal 0.13.0",
+ "stm32f4xx-hal 0.13.0 (git+https://github.com/stm32-rs/stm32f4xx-hal.git)",
  "systick-monotonic",
  "usb-device",
  "usbd-serial",
@@ -339,9 +339,9 @@ dependencies = [
 
 [[package]]
 name = "embedded-hal"
-version = "1.0.0-alpha.7"
+version = "1.0.0-alpha.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93cc714edeae73aa1ff259af4498595360b2992e0e9c59801873ed198a7f2216"
+checksum = "c3babfc7fd332142a0b11aebf592992f211f4e01b6222fb04b03aba1bd80018d"
 dependencies = [
  "nb 1.0.0",
 ]
@@ -422,15 +422,6 @@ name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab5ef0d4909ef3724cc8cce6ccc8572c5c817592e9285f5464f8e86f8bd3726e"
-
-[[package]]
-name = "hd44780-driver"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aab2b13fdeaed7dde9133a57c28b2cbde4a8fc8c3196b5631428aad114857d3a"
-dependencies = [
- "embedded-hal 0.2.7",
-]
 
 [[package]]
 name = "heapless"
@@ -816,11 +807,11 @@ dependencies = [
 [[package]]
 name = "spi-memory"
 version = "0.2.0"
-source = "git+https://github.com/sjm42/spi-memory.git#d70d320d60587b0b18346fc71d94d412d258315c"
+source = "git+https://github.com/sjm42/spi-memory.git#ea60e5a5129ab37323460fed77eef9f2d41e95ce"
 dependencies = [
  "bitflags",
  "embedded-hal 0.2.7",
- "stm32f4xx-hal 0.12.0",
+ "stm32f4xx-hal 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -863,9 +854,9 @@ dependencies = [
 
 [[package]]
 name = "stm32f4xx-hal"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dec85aed466acc6fcd7f2f2cc01b40e7ed54b50cc0a723f3c78b0edf9e4841a"
+checksum = "1e722ebf64a7c39a5ff08f99ccc01455226fa3b2a1778bde7e91facbf2fffaac"
 dependencies = [
  "bare-metal 1.0.0",
  "bitflags",
@@ -873,11 +864,10 @@ dependencies = [
  "cortex-m-rt",
  "embedded-dma",
  "embedded-hal 0.2.7",
- "embedded-hal 1.0.0-alpha.7",
+ "embedded-hal 1.0.0-alpha.8",
  "embedded-storage",
  "fugit",
  "fugit-timer",
- "hd44780-driver",
  "nb 1.0.0",
  "rand_core",
  "stm32f4",
@@ -889,8 +879,7 @@ dependencies = [
 [[package]]
 name = "stm32f4xx-hal"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e722ebf64a7c39a5ff08f99ccc01455226fa3b2a1778bde7e91facbf2fffaac"
+source = "git+https://github.com/stm32-rs/stm32f4xx-hal.git#70894b458a0323de44e48c53d64b109151ef5c0f"
 dependencies = [
  "bare-metal 1.0.0",
  "bitflags",
@@ -898,7 +887,7 @@ dependencies = [
  "cortex-m-rt",
  "embedded-dma",
  "embedded-hal 0.2.7",
- "embedded-hal 1.0.0-alpha.7",
+ "embedded-hal 1.0.0-alpha.8",
  "embedded-storage",
  "fugit",
  "fugit-timer",
