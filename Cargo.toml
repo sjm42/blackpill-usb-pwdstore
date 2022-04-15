@@ -22,7 +22,7 @@ features = ["rt", "stm32f411", "usb_fs"]
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-cortex-m-rtic = "1.1"
+cortex-m-rtic = "1.0"
 systick-monotonic = "1.0"
 # cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic.git" }
 # systick-monotonic = { git = "https://github.com/rtic-rs/systick-monotonic.git" }
