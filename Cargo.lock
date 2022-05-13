@@ -433,9 +433,9 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf3aa654fd5797bcce240927e736c84617d9db084afe6e5a63e4f065b2b8119c"
+checksum = "80d9655b43f21008d1d6f6ae33ba8bfbaf1ef954f19ea3023e1bcf8e06b4e909"
 dependencies = [
  "atomic-polyfill",
  "hash32",
@@ -908,9 +908,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "syn"
-version = "1.0.93"
+version = "1.0.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04066589568b72ec65f42d65a1a52436e954b168773148893c020269563decf2"
+checksum = "a07e33e919ebcd69113d5be0e4d70c5707004ff45188910106854f38b960df4a"
 dependencies = [
  "proc-macro2",
  "quote",
