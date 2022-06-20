@@ -821,8 +821,8 @@ dependencies = [
 
 [[package]]
 name = "spi-memory"
-version = "0.2.0"
-source = "git+https://github.com/sjm42/spi-memory.git#1e6cd00d3a63d265c23840a30d9cb14bc5665de0"
+version = "0.2.1"
+source = "git+https://github.com/sjm42/spi-memory.git#87eed34765c2347829b859e33949f2ab325e5d90"
 dependencies = [
  "bitflags",
  "embedded-hal 0.2.7",
