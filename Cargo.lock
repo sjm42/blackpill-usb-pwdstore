@@ -265,9 +265,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m-rtic-macros"
-version = "1.1.4"
+version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fc415412b9d7e82f99f9ba85077da2ce6bfe2181a0f0a6d04a3ac0c171b39e0"
+checksum = "9e8e9645ef54bec1cf70ac33e9bf9566e6507ab5b41ae6baf3735662194e8607"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
