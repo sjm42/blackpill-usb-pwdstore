@@ -55,20 +55,20 @@ mod app {
     type SerialTx = serial::Tx<USART1, u8>;
     type UsbdSerial = usbd_serial::SerialPort<'static, UsbBusType>;
 
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum InitState {
         Idle,
         AskPass1,
         AskPass2,
     }
 
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum OpenState {
         Idle,
         AskPass,
     }
 
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum StoreState {
         Idle,
         AskUser,
@@ -329,7 +329,7 @@ mod app {
     #[task(priority=1, shared=[menu_runner])]
     fn periodic(cx: periodic::Context) {
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             menu_runner.context.pwd_store.watchdog.feed();
         });
         periodic::spawn_after(200u64.millis()).unwrap();
@@ -362,10 +362,10 @@ mod app {
     #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, menu_runner])]
     fn button(cx: button::Context) {
         let mut button = cx.shared.pin_button;
-        (&mut button).lock(|button| button.clear_interrupt_pending_bit());
+        button.lock(|button| button.clear_interrupt_pending_bit());
 
         let mut button_down = cx.shared.button_down;
-        (&mut button_down).lock(|button_down| {
+        button_down.lock(|button_down| {
             if *button_down {
                 // debounce?
                 return;
@@ -374,7 +374,7 @@ mod app {
         });
 
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             let ser = &mut menu_runner.context;
             write!(ser, "\r\n# button #\r\n").ok();
         });
@@ -387,7 +387,7 @@ mod app {
     #[task(priority=3, shared=[button_down])]
     fn button_up(cx: button_up::Context) {
         let mut button_down = cx.shared.button_down;
-        (&mut button_down).lock(|button_down| {
+        button_down.lock(|button_down| {
             *button_down = false;
         });
     }
@@ -490,7 +490,7 @@ mod app {
             }
         });
 
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             menu_runner.context.pwd_store.watchdog.feed();
         });
 
@@ -500,7 +500,7 @@ mod app {
     #[task(priority=2, capacity=5, shared=[menu_runner])]
     fn feed_runner(cx: feed_runner::Context, c: u8) {
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             menu_runner.input_byte(c);
         });
     }
@@ -508,7 +508,7 @@ mod app {
     #[task(priority=2, shared=[menu_runner])]
     fn task_init(cx: task_init::Context) {
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             let ctx = &mut menu_runner.context;
             let pass1 = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             let pass2 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
@@ -525,7 +525,7 @@ mod app {
     #[task(priority=2, shared=[menu_runner])]
     fn task_open(cx: task_open::Context) {
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             let ctx = &mut menu_runner.context;
             let pass = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             ctx.pwd_store
@@ -537,7 +537,7 @@ mod app {
     #[task(priority=2, shared=[menu_runner])]
     fn task_store(cx: task_store::Context) {
         let mut menu_runner = cx.shared.menu_runner;
-        (&mut menu_runner).lock(|menu_runner| {
+        menu_runner.lock(|menu_runner| {
             let ctx = &mut menu_runner.context;
             let name = ctx.opt_str.take().unwrap();
             let user = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
