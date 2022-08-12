@@ -62,9 +62,9 @@ dependencies = [
 
 [[package]]
 name = "atomic-polyfill"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c002315c820e739b5476c969cd711c5730ff4997a081b654e5ebab61ce21e6"
+checksum = "9c041a8d9751a520ee19656232a18971f18946a7900f1520ee4400002244dd89"
 dependencies = [
  "critical-section",
 ]
