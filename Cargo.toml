@@ -1,6 +1,6 @@
 [package]
 name = "blackpill-usb-pwdstore"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "USB Password Trove for BlackPill card (stm32f411)"
 repository = "https://github.com/sjm42/blackpill-usb-pwdstore"
@@ -15,7 +15,7 @@ black_pill = ["stm32f4xx-hal"]
 
 [dependencies.stm32f4xx-hal]
 optional = true
-version = "0.13.2"
+version = "=0.13.2"
 features = ["rt", "stm32f411", "usb_fs"]
 # git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
 

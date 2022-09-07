@@ -39,7 +39,6 @@ const ADDR_MASTER_KEY: u32 = 0x000000;
 const ADDR_MIN: u32 = FLASH_BLOCK_SIZE as u32;
 const ADDR_MAX: u32 = (FLASH_BLOCK_SIZE * 0x07FF) as u32;
 
-const NOECHO_BUF_LEN: usize = FLASH_BLOCK_SIZE;
 const PWD_NAME_LEN: usize = 250;
 const PWD_DATA_LEN: usize = FLASH_BLOCK_SIZE - 6 - PWD_NAME_LEN;
 const SIZE_PWD_REPR: usize = 6 + PWD_NAME_LEN + PWD_DATA_LEN;
@@ -368,7 +367,7 @@ impl PwdStore {
         seed_hasher.update(unsafe {
             ::core::slice::from_raw_parts((&seed as *const u64) as *const u8, 8)
         });
-        seed_hasher.update(&master_key);
+        seed_hasher.update(master_key);
         runtime_seed.copy_from_slice(seed_hasher.finalize().as_slice());
         let mut rng_runtime = StdRng::from_seed(runtime_seed);
 
