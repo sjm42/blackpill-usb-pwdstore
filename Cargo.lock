@@ -22,9 +22,9 @@ dependencies = [
 
 [[package]]
 name = "alloc-cortex-m"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b309e7a89884824cb3c8e5f882024269c95e90b2f746344f2914423ac33c452"
+checksum = "483c3bd0f9a7bb982b72988f5f173d29687c432d8013c1d3232635e6c0f0a60c"
 dependencies = [
  "cortex-m 0.7.6",
  "linked_list_allocator",
