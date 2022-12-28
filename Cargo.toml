@@ -1,6 +1,8 @@
+# Cargo.toml
+
 [package]
 name = "blackpill-usb-pwdstore"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "USB Password Trove for BlackPill card (stm32f411)"
 repository = "https://github.com/sjm42/blackpill-usb-pwdstore"
@@ -9,15 +11,18 @@ keywords = ["usb", "password", "embedded", "blackpill", "stm32"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 
+
 [features]
 default = ["black_pill"]
 black_pill = ["stm32f4xx-hal"]
+
 
 [dependencies.stm32f4xx-hal]
 optional = true
 version = "=0.13.2"
 features = ["rt", "stm32f411", "usb_fs"]
 # git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
+
 
 [dependencies]
 alloc-cortex-m = "0.4"
@@ -58,6 +63,7 @@ opt-level = 'z'
 codegen-units = 1 # better optimizations
 debug = true      # symbols are nice and they don't increase the size on Flash
 lto = true        # better optimizations
+
 
 [build-dependencies]
 build-data = "0.1"
