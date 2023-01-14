@@ -95,7 +95,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "blackpill-usb-pwdstore"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "alloc-cortex-m",
  "build-data",
@@ -112,7 +112,7 @@ dependencies = [
  "sha2",
  "spi-memory",
  "stm32-usbd",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.14.0",
  "systick-monotonic",
  "usb-device",
  "usbd-serial",
@@ -400,9 +400,9 @@ dependencies = [
 
 [[package]]
 name = "embedded-hal"
-version = "1.0.0-alpha.7"
+version = "1.0.0-alpha.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93cc714edeae73aa1ff259af4498595360b2992e0e9c59801873ed198a7f2216"
+checksum = "c3babfc7fd332142a0b11aebf592992f211f4e01b6222fb04b03aba1bd80018d"
 dependencies = [
  "nb 1.0.0",
 ]
@@ -883,7 +883,7 @@ source = "git+https://github.com/sjm42/spi-memory.git#87eed34765c2347829b859e339
 dependencies = [
  "bitflags",
  "embedded-hal 0.2.7",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.13.0",
 ]
 
 [[package]]
@@ -925,10 +925,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "stm32f4xx-hal"
-version = "0.13.2"
+name = "stm32f4"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23ff737e5c7bd48ed40b5e14f1da1413c34be611c9871779199b67c40f40a396"
+checksum = "fb94729242cd1aebe6dab42a2ca0131985ae93bc3ab2751b680df724bb35528d"
+dependencies = [
+ "bare-metal 1.0.0",
+ "cortex-m 0.7.7",
+ "cortex-m-rt",
+ "vcell",
+]
+
+[[package]]
+name = "stm32f4xx-hal"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e722ebf64a7c39a5ff08f99ccc01455226fa3b2a1778bde7e91facbf2fffaac"
 dependencies = [
  "bare-metal 1.0.0",
  "bitflags",
@@ -936,14 +948,38 @@ dependencies = [
  "cortex-m-rt",
  "embedded-dma",
  "embedded-hal 0.2.7",
- "embedded-hal 1.0.0-alpha.7",
+ "embedded-hal 1.0.0-alpha.8",
  "embedded-storage",
  "fugit",
  "fugit-timer",
  "nb 1.0.0",
  "rand_core",
- "stm32f4",
- "synopsys-usb-otg",
+ "stm32f4 0.14.0",
+ "synopsys-usb-otg 0.2.4",
+ "time 0.3.17",
+ "void",
+]
+
+[[package]]
+name = "stm32f4xx-hal"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbb045e607d0946eca27523141d192d7ee91aea0dff9736be100b8fc0c186abf"
+dependencies = [
+ "bare-metal 1.0.0",
+ "bitflags",
+ "cortex-m 0.7.7",
+ "cortex-m-rt",
+ "embedded-dma",
+ "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0-alpha.8",
+ "embedded-storage",
+ "fugit",
+ "fugit-timer",
+ "nb 1.0.0",
+ "rand_core",
+ "stm32f4 0.15.1",
+ "synopsys-usb-otg 0.3.2",
  "time 0.3.17",
  "void",
 ]
@@ -972,6 +1008,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1216cb0fe29f65bfffe03c364640202eed1291d85d2f62bbadbe670106786e5"
 dependencies = [
  "cortex-m 0.6.7",
+ "usb-device",
+ "vcell",
+]
+
+[[package]]
+name = "synopsys-usb-otg"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678f3707a7b1fd4863023292c42f73c6bab0e9b0096f41ae612d1af0ff221b45"
+dependencies = [
+ "cortex-m 0.7.7",
+ "embedded-hal 0.2.7",
  "usb-device",
  "vcell",
 ]
