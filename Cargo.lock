@@ -74,7 +74,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "blackpill-usb-pwdstore"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "alloc-cortex-m",
  "build-data",
@@ -91,7 +91,7 @@ dependencies = [
  "sha2",
  "spi-memory",
  "stm32-usbd",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.15.0",
  "systick-monotonic",
  "usb-device",
  "usbd-serial",
@@ -831,7 +831,7 @@ source = "git+https://github.com/sjm42/spi-memory.git#24fbe872f39d8b68b9363fff13
 dependencies = [
  "bitflags",
  "embedded-hal 0.2.7",
- "stm32f4xx-hal",
+ "stm32f4xx-hal 0.14.0",
 ]
 
 [[package]]
@@ -877,6 +877,30 @@ name = "stm32f4xx-hal"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbb045e607d0946eca27523141d192d7ee91aea0dff9736be100b8fc0c186abf"
+dependencies = [
+ "bare-metal 1.0.0",
+ "bitflags",
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-dma",
+ "embedded-hal 0.2.7",
+ "embedded-hal 1.0.0-alpha.8",
+ "embedded-storage",
+ "fugit",
+ "fugit-timer",
+ "nb 1.1.0",
+ "rand_core",
+ "stm32f4",
+ "synopsys-usb-otg",
+ "time 0.3.20",
+ "void",
+]
+
+[[package]]
+name = "stm32f4xx-hal"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e60d70c1deaa1411348f1efc64761d183ab87e86b8208c5c42796a86fe6217a7"
 dependencies = [
  "bare-metal 1.0.0",
  "bitflags",
