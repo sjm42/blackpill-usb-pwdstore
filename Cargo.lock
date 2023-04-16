@@ -108,9 +108,9 @@ dependencies = [
 
 [[package]]
 name = "build-data"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a94f9f7aab679acac7ce29ba5581c00d3971a861c3b501c5bb74c3ba0026d90"
+checksum = "4ac83c47416b2db78a5a8a45d7d229a730b62806fa41ac6b4dbde6d016798776"
 dependencies = [
  "chrono",
  "safe-lock",
