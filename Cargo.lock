@@ -73,8 +73,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bitflags"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6776fc96284a0bb647b615056fc496d1fe1644a7ab01829818a6d91cae888b84"
+
+[[package]]
 name = "blackpill-usb-pwdstore"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "alloc-cortex-m",
  "build-data",
@@ -91,7 +97,7 @@ dependencies = [
  "sha2",
  "spi-memory",
  "stm32-usbd",
- "stm32f4xx-hal 0.15.0",
+ "stm32f4xx-hal 0.16.0",
  "systick-monotonic",
  "usb-device",
  "usbd-serial",
@@ -204,6 +210,7 @@ checksum = "8ec610d8f49840a5b376c69663b6369e71f4b34484b9b2eb29fb918d92516cb9"
 dependencies = [
  "bare-metal 0.2.5",
  "bitfield",
+ "critical-section",
  "embedded-hal 0.2.7",
  "volatile-register",
 ]
@@ -756,7 +763,7 @@ name = "spi-memory"
 version = "0.2.2"
 source = "git+https://github.com/sjm42/spi-memory.git#24fbe872f39d8b68b9363fff13036b96a38983f3"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "embedded-hal 0.2.7",
  "stm32f4xx-hal 0.14.0",
 ]
@@ -806,7 +813,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbb045e607d0946eca27523141d192d7ee91aea0dff9736be100b8fc0c186abf"
 dependencies = [
  "bare-metal 1.0.0",
- "bitflags",
+ "bitflags 1.3.2",
  "cortex-m",
  "cortex-m-rt",
  "embedded-dma",
@@ -825,12 +832,12 @@ dependencies = [
 
 [[package]]
 name = "stm32f4xx-hal"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e60d70c1deaa1411348f1efc64761d183ab87e86b8208c5c42796a86fe6217a7"
+checksum = "431cd6045c6644beb39d421a37967e7f0708bce98ed6e38559137e09d5ae6d81"
 dependencies = [
  "bare-metal 1.0.0",
- "bitflags",
+ "bitflags 2.3.1",
  "cortex-m",
  "cortex-m-rt",
  "embedded-dma",
