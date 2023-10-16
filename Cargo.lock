@@ -65,9 +65,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
+checksum = "327762f6e5a765692301e5bb513e0d9fef63be86bbc14528052b1cd3e6f03e07"
 
 [[package]]
 name = "blackpill-usb-pwdstore"
@@ -765,7 +765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc2877159274bc374744f10a4dd913b5175593ce02a94d70b8ba978e49db199b"
 dependencies = [
  "bare-metal 1.0.0",
- "bitflags 2.4.0",
+ "bitflags 2.4.1",
  "cortex-m",
  "cortex-m-rt",
  "embedded-dma",
