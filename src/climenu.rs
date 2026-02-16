@@ -1,14 +1,13 @@
 // climenu.rs
 
 use crate::*;
-// use hal::{gpio::*, prelude::*, serial, spi::*};
-use spi_memory::prelude::*;
+use crate::spi_memory::prelude::*;
+use embedded_cli::Command;
 
 pub const NOECHO_BUF_SIZE: usize = 256;
 
-pub struct MyMenuCtx {
+pub struct AppCtx {
     pub now: u64,
-    pub serial: MyUsbSerial,
     pub pwd_store: PwdStore,
     pub init: InitState,
     pub open: OpenState,
@@ -22,221 +21,113 @@ pub struct MyMenuCtx {
     pub buf3: [u8; NOECHO_BUF_SIZE],
 }
 
-impl fmt::Write for MyMenuCtx {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        s.bytes()
-            .try_for_each(|c| {
-                if c == b'\n' {
-                    self.serial.serial.write(&[b'\r'])?;
-                }
-                self.serial.serial.write(&[c]).map(|_| ())
-            })
-            .map_err(|_| fmt::Error)
+#[derive(Debug, Command)]
+pub enum AppCommand<'a> {
+    /// Show status
+    Status,
+    /// Initialize password store
+    Init,
+    /// Open password store
+    Open,
+    /// Close password store
+    Close,
+    /// Store secret to flash
+    Store {
+        name: &'a str,
+    },
+    /// Fetch secret from flash
+    Fetch {
+        loc: &'a str,
+    },
+    /// Drop secret from flash
+    Drop {
+        loc: &'a str,
+    },
+    /// Scan flash for secrets
+    Scan,
+    /// List secrets
+    List,
+    /// Search secret names
+    Search {
+        srch: &'a str,
+    },
+    /// Wait (debug)
+    Wait,
+    /// Flash operations
+    Flash {
+        #[command(subcommand)]
+        command: FlashCommand<'a>,
+    },
+}
+
+#[derive(Debug, Command)]
+pub enum FlashCommand<'a> {
+    /// Read flash memory
+    Read {
+        addr: &'a str,
+        len: Option<&'a str>,
+    },
+    /// Write flash memory
+    Write {
+        addr: &'a str,
+        len: Option<&'a str>,
+        data: Option<&'a str>,
+    },
+    /// Erase flash memory
+    Erase {
+        addr: &'a str,
+        len: Option<&'a str>,
+    },
+}
+
+pub fn process_cli_byte(cli: &mut AppCli, app_ctx: &mut AppCtx, byte: u8) {
+    let _ = cli.process_byte::<AppCommand<'_>, _>(
+        byte,
+        &mut AppCommand::processor(|cli_handle, command| {
+            dispatch_command(cli_handle.writer(), app_ctx, command);
+            Ok(())
+        }),
+    );
+}
+
+fn dispatch_command(w: &mut impl fmt::Write, ctx: &mut AppCtx, command: AppCommand<'_>) {
+    match command {
+        AppCommand::Status => cmd_status(w, ctx),
+        AppCommand::Init => cmd_init(w, ctx),
+        AppCommand::Open => cmd_open(w, ctx),
+        AppCommand::Close => cmd_close(w, ctx),
+        AppCommand::Store { name } => cmd_store(w, ctx, name),
+        AppCommand::Fetch { loc } => cmd_fetch(w, ctx, loc),
+        AppCommand::Drop { loc } => cmd_drop(w, ctx, loc),
+        AppCommand::Scan => cmd_scan(w, ctx),
+        AppCommand::List => cmd_list(w, ctx),
+        AppCommand::Search { srch } => cmd_search(w, ctx, srch),
+        AppCommand::Wait => cmd_wait(w, ctx),
+        AppCommand::Flash { command } => dispatch_flash(w, ctx, command),
     }
 }
 
-pub const ROOT_MENU: menu::Menu<MyMenuCtx> = menu::Menu {
-    label: "root",
-    entry: None,
-    exit: None,
-    items: &[
-        &menu::Item {
-            command: "status",
-            help: Some("Show status"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_status,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "init",
-            help: Some("Initialize password store"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_init,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "open",
-            help: Some("Open password store"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_open,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "close",
-            help: Some("Close password store"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_close,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "store",
-            help: Some("Store secret to flash"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_store,
-                parameters: &[menu::Parameter::Mandatory {
-                    parameter_name: "name",
-                    help: Some("Name of secret"),
-                }],
-            },
-        },
-        &menu::Item {
-            command: "fetch",
-            help: Some("Fetch secret from flash"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_fetch,
-                parameters: &[menu::Parameter::Mandatory {
-                    parameter_name: "loc",
-                    help: Some("Location to fetch"),
-                }],
-            },
-        },
-        &menu::Item {
-            command: "drop",
-            help: Some("Drop secret from flash"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_drop,
-                parameters: &[menu::Parameter::Mandatory {
-                    parameter_name: "loc",
-                    help: Some("Location to drop"),
-                }],
-            },
-        },
-        &menu::Item {
-            command: "scan",
-            help: Some("Scan flash for secrets"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_scan,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "list",
-            help: Some("List secrets"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_list,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "search",
-            help: Some("Search secret names with a string"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_search,
-                parameters: &[menu::Parameter::Mandatory {
-                    parameter_name: "srch",
-                    help: Some("String to search"),
-                }],
-            },
-        },
-        &menu::Item {
-            command: "wait",
-            help: Some("List secrets"),
-            item_type: menu::ItemType::Callback {
-                function: cmd_wait,
-                parameters: &[],
-            },
-        },
-        &menu::Item {
-            command: "flash",
-            help: Some("Flash functions"),
-            item_type: menu::ItemType::Menu(&menu::Menu {
-                label: "flash",
-                entry: None,
-                exit: None,
-                items: &[
-                    &menu::Item {
-                        command: "read",
-                        help: Some("Read flash mem"),
-                        item_type: menu::ItemType::Callback {
-                            function: cmd_flash_read_write,
-                            parameters: &[
-                                menu::Parameter::Mandatory {
-                                    parameter_name: "addr",
-                                    help: Some("Start address of flash read"),
-                                },
-                                menu::Parameter::Optional {
-                                    parameter_name: "len",
-                                    help: Some("Read length in bytes"),
-                                },
-                            ],
-                        },
-                    },
-                    &menu::Item {
-                        command: "write",
-                        help: Some("Write flash mem"),
-                        item_type: menu::ItemType::Callback {
-                            function: cmd_flash_read_write,
-                            parameters: &[
-                                menu::Parameter::Mandatory {
-                                    parameter_name: "addr",
-                                    help: Some("Start address of flash write"),
-                                },
-                                menu::Parameter::Optional {
-                                    parameter_name: "len",
-                                    help: Some("Write length in bytes"),
-                                },
-                                menu::Parameter::Optional {
-                                    parameter_name: "data",
-                                    help: Some("Fill byte, default is randomized"),
-                                },
-                            ],
-                        },
-                    },
-                    &menu::Item {
-                        command: "erase",
-                        help: Some("Erase flash mem"),
-                        item_type: menu::ItemType::Callback {
-                            function: cmd_flash_erase,
-                            parameters: &[
-                                menu::Parameter::Mandatory {
-                                    parameter_name: "addr",
-                                    help: Some(
-                                        "Address of flash erase - must be multiple of 4KB (0x1000)",
-                                    ),
-                                },
-                                menu::Parameter::Optional {
-                                    parameter_name: "len",
-                                    help: Some(
-                                        "Length of flash erase - must be multiple of 4KB (0x1000)",
-                                    ),
-                                },
-                            ],
-                        },
-                    },
-                ],
-            }),
-        },
-    ],
-};
-
-fn cmd_status(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let pws = &mut ctx.pwd_store;
-    pws.status(&mut ctx.serial);
+fn dispatch_flash(w: &mut impl fmt::Write, ctx: &mut AppCtx, command: FlashCommand<'_>) {
+    match command {
+        FlashCommand::Read { addr, len } => cmd_flash_read_write(w, ctx, addr, len, None, false),
+        FlashCommand::Write { addr, len, data } => {
+            cmd_flash_read_write(w, ctx, addr, len, data, true)
+        }
+        FlashCommand::Erase { addr, len } => cmd_flash_erase(w, ctx, addr, len),
+    }
 }
 
-fn cmd_init(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
+fn cmd_status(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
+    ctx.pwd_store.status(w);
+}
+
+fn cmd_init(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
     if ctx.pwd_store.is_initialized() {
         write!(
-            ctx,
-            "Error: will not overwrite existing master key.\r\n\
-            If you want a fresh start, issue these commands from main menu:\r\n\
-            flash\r\n\
-            erase 0 0x800000\r\n\
-            exit\r\n"
+            w,
+            "Error: will not overwrite existing master key.\n\
+            If you want a fresh start, issue this command:\n\
+            flash erase 0 0x800000\n"
         )
         .ok();
         return;
@@ -244,231 +135,147 @@ fn cmd_init(
     ctx.idx1 = 0;
     ctx.idx2 = 0;
     ctx.idx3 = 0;
-    write!(ctx, "master password:").ok();
+    write!(w, "master password:").ok();
     ctx.init = InitState::AskPass1;
 }
 
-fn cmd_open(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
+fn cmd_open(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
     ctx.idx1 = 0;
     ctx.idx2 = 0;
     ctx.idx3 = 0;
-    write!(ctx, "master password:").ok();
+    write!(w, "master password:").ok();
     ctx.open = OpenState::AskPass;
 }
 
-fn cmd_close(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let pws = &mut ctx.pwd_store;
-    pws.close(&mut ctx.serial);
+fn cmd_close(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
+    ctx.pwd_store.close(w);
 }
 
-fn cmd_store(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let name = if let Ok(Some(aa)) = menu::argument_finder(item, args, "name") {
-        aa
-    } else {
-        write!(ctx, "Name not given.\r\n").ok();
-        return;
-    };
-
+fn cmd_store(w: &mut impl fmt::Write, ctx: &mut AppCtx, name: &str) {
     ctx.opt_str = Some(name.to_string());
     ctx.idx1 = 0;
     ctx.idx2 = 0;
     ctx.idx3 = 0;
-    write!(ctx, "username: ").ok();
+    write!(w, "username: ").ok();
     ctx.store = StoreState::AskUser;
 }
 
-fn cmd_fetch(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
-        if let Some(a) = parse_num(ctx, aa) {
-            a
-        } else {
-            write!(ctx, "Could not parse loc: \"{aa}\".\r\n").ok();
-            return;
-        }
+fn cmd_fetch(w: &mut impl fmt::Write, ctx: &mut AppCtx, loc_s: &str) {
+    let loc = if let Some(a) = parse_num(w, loc_s) {
+        a
     } else {
-        write!(ctx, "Location not given.\r\n").ok();
+        writeln!(w, "Could not parse loc: \"{loc_s}\".").ok();
         return;
     };
-
-    let pws = &mut ctx.pwd_store;
-    pws.fetch(&mut ctx.serial, loc);
+    ctx.pwd_store.fetch(w, loc);
 }
 
-fn cmd_drop(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let loc = if let Ok(Some(aa)) = menu::argument_finder(item, args, "loc") {
-        if let Some(a) = parse_num(ctx, aa) {
-            a
-        } else {
-            write!(ctx, "Could not parse loc: \"{aa}\".\r\n").ok();
-            return;
-        }
+fn cmd_drop(w: &mut impl fmt::Write, ctx: &mut AppCtx, loc_s: &str) {
+    let loc = if let Some(a) = parse_num(w, loc_s) {
+        a
     } else {
-        write!(ctx, "Location not given.\r\n").ok();
+        writeln!(w, "Could not parse loc: \"{loc_s}\".").ok();
         return;
     };
-
-    let pws = &mut ctx.pwd_store;
-    pws.drop(&mut ctx.serial, loc);
+    ctx.pwd_store.drop(w, loc);
 }
 
-fn cmd_scan(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let pws = &mut ctx.pwd_store;
-    pws.scan(&mut ctx.serial);
+fn cmd_scan(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
+    ctx.pwd_store.scan(w);
 }
 
-fn cmd_list(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let pws = &mut ctx.pwd_store;
-    pws.list(&mut ctx.serial);
+fn cmd_list(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
+    ctx.pwd_store.list(w);
 }
 
-fn cmd_search(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let srch = if let Ok(Some(term)) = menu::argument_finder(item, args, "srch") {
-        term
-    } else {
-        write!(ctx, "Search string not given.\r\n").ok();
-        return;
-    };
-
-    let pws = &mut ctx.pwd_store;
-    pws.search(&mut ctx.serial, srch.as_bytes());
+fn cmd_search(w: &mut impl fmt::Write, ctx: &mut AppCtx, srch: &str) {
+    ctx.pwd_store.search(w, srch.as_bytes());
 }
 
-fn cmd_wait(
-    _menu: &menu::Menu<MyMenuCtx>,
-    _item: &menu::Item<MyMenuCtx>,
-    _args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
+fn cmd_wait(w: &mut impl fmt::Write, ctx: &mut AppCtx) {
     ctx.idx1 = 0;
     ctx.idx2 = 0;
     ctx.idx3 = 0;
-    write!(ctx, "username: ").ok();
+    write!(w, "username: ").ok();
     ctx.store = StoreState::AskUser;
 }
 
-fn parse_radix(ctx: &mut MyMenuCtx, addr: &str, radix: u32) -> Option<usize> {
+fn parse_radix(w: &mut impl fmt::Write, addr: &str, radix: u32) -> Option<usize> {
     match usize::from_str_radix(addr, radix) {
         Err(e) => {
-            write!(ctx, "Address (radix {radix}) parse error: {e:?}\r\n").ok();
+            writeln!(w, "Address (radix {radix}) parse error: {e:?}").ok();
             None
         }
         Ok(a) => Some(a),
     }
 }
 
-fn parse_num(ctx: &mut MyMenuCtx, num: &str) -> Option<usize> {
+fn parse_num(w: &mut impl fmt::Write, num: &str) -> Option<usize> {
     if let Some(hex) = num.strip_prefix("0x") {
-        // Hex parse
-        parse_radix(ctx, hex, 16)
+        parse_radix(w, hex, 16)
     } else if num.starts_with('0') && num.len() > 1 {
-        // Octal parse
-        parse_radix(ctx, &num[1..], 8)
+        parse_radix(w, &num[1..], 8)
     } else {
-        // Decimal parse
-        parse_radix(ctx, num, 10)
+        parse_radix(w, num, 10)
     }
 }
 
 const HEX_BUF_SZ: usize = 256;
-fn cmd_flash_read_write(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
-) {
-    let mode_write = item.command == "write";
 
-    let addr = if let Ok(Some(aa)) = menu::argument_finder(item, args, "addr") {
-        if let Some(a) = parse_num(ctx, aa) {
-            a
-        } else {
-            write!(ctx, "Could not parse addr: \"{aa}\".\r\n").ok();
-            return;
-        }
+fn cmd_flash_read_write(
+    w: &mut impl fmt::Write,
+    ctx: &mut AppCtx,
+    addr_s: &str,
+    len_s: Option<&str>,
+    data_s: Option<&str>,
+    mode_write: bool,
+) {
+    let addr = if let Some(a) = parse_num(w, addr_s) {
+        a
     } else {
-        write!(ctx, "Address not given.\r\n").ok();
+        writeln!(w, "Could not parse addr: \"{addr_s}\".").ok();
         return;
     };
     if addr >= FLASH_SIZE {
-        write!(
-            ctx,
-            "Error: addr {addr} (0x{addr:x}) is larger than flash size {FLASH_SIZE} (0x{FLASH_SIZE:x}).\r\n",
+        writeln!(
+            w,
+            "Error: addr {addr} (0x{addr:x}) is larger than flash size {FLASH_SIZE} (0x{FLASH_SIZE:x}).",
         )
         .ok();
         return;
     }
 
     let mut len = HEX_BUF_SZ;
-    if let Ok(Some(al)) = menu::argument_finder(item, args, "len") {
-        if let Some(ret) = parse_num(ctx, al) {
+    if let Some(al) = len_s {
+        if let Some(ret) = parse_num(w, al) {
             len = ret;
         } else {
-            write!(ctx, "Could not parse len: \"{al}\".\r\n").ok();
+            writeln!(w, "Could not parse len: \"{al}\".").ok();
             return;
         }
     }
     if addr + len > FLASH_SIZE {
         let new_len = FLASH_SIZE - addr;
-        write!(
-            ctx,
+        writeln!(
+            w,
             "Warning: len {len} (0x{len:x}) reaches beyond flash size {FLASH_SIZE} (0x{FLASH_SIZE:x}) \
-            and was trucated to {new_len} (0x{new_len:x}).\r\n",
+            and was trucated to {new_len} (0x{new_len:x}).",
         )
         .ok();
         len = new_len;
     }
 
     let mut fill_byte: Option<u8> = None;
-    if let Ok(Some(data_s)) = menu::argument_finder(item, args, "data") {
-        if let Some(ret) = parse_num(ctx, data_s) {
+    if let Some(data_str) = data_s {
+        if let Some(ret) = parse_num(w, data_str) {
             fill_byte = Some(ret as u8);
         } else {
-            write!(ctx, "Could not parse data: \"{data_s}\".\r\n").ok();
+            writeln!(w, "Could not parse data: \"{data_str}\".").ok();
             return;
         }
     }
 
-    let mut buf = [0u8; HEX_BUF_SZ as usize];
+    let mut buf = [0u8; HEX_BUF_SZ];
     let mut rng = rand::rngs::StdRng::seed_from_u64(ctx.now);
 
     let mut chunks = len / HEX_BUF_SZ;
@@ -478,8 +285,8 @@ fn cmd_flash_read_write(
     }
 
     write!(
-        ctx,
-        "\r\n* {}ing {len} bytes at 0x{addr:06x} in {chunks} chunks, last {last_sz} bytes:\r\n",
+        w,
+        "\n* {}ing {len} bytes at 0x{addr:06x} in {chunks} chunks, last {last_sz} bytes:\n",
         if mode_write { "Writ" } else { "Read" },
     )
     .ok();
@@ -494,26 +301,24 @@ fn cmd_flash_read_write(
 
         if mode_write {
             if let Some(fill_b) = fill_byte {
-                // data byte to use for filling was given
                 buf.iter_mut().for_each(|b| *b = fill_b);
             } else {
-                // fill buf with random bytes
                 rng.fill_bytes(&mut buf[..mem_len]);
             }
 
-            hex_dump(ctx, mem_addr, &buf[..mem_len]);
+            hex_dump(w, mem_addr, &buf[..mem_len]);
             match ctx
                 .pwd_store
                 .flash
                 .write_bytes(mem_addr as u32, &mut buf[..mem_len])
             {
-                Ok(w) => {
-                    write!(ctx, "#wait {w}\r\n").ok();
+                Ok(wait) => {
+                    writeln!(w, "#wait {wait}").ok();
                 }
                 Err(e) => {
                     write!(
-                        ctx,
-                        "\r\n### Flash write failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
+                        w,
+                        "\n### Flash write failed at 0x{mem_addr:06x} ({e:?}) - abort.\n",
                     )
                     .ok();
                     return;
@@ -526,106 +331,101 @@ fn cmd_flash_read_write(
                 .read(mem_addr as u32, &mut buf[..mem_len])
             {
                 write!(
-                    ctx,
-                    "\r\n### Flash read failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
+                    w,
+                    "\n### Flash read failed at 0x{mem_addr:06x} ({e:?}) - abort.\n",
                 )
                 .ok();
                 return;
             }
-            hex_dump(ctx, mem_addr, &buf[..mem_len]);
+            hex_dump(w, mem_addr, &buf[..mem_len]);
         }
         // prevent hardware reset during lengthy flash ops
         ctx.pwd_store.watchdog.feed();
     }
-    write!(ctx, "\r\n").ok();
+    writeln!(w).ok();
 }
 
 fn cmd_flash_erase(
-    _menu: &menu::Menu<MyMenuCtx>,
-    item: &menu::Item<MyMenuCtx>,
-    args: &[&str],
-    ctx: &mut MyMenuCtx,
+    w: &mut impl fmt::Write,
+    ctx: &mut AppCtx,
+    addr_s: &str,
+    len_s: Option<&str>,
 ) {
     let jedec_id = ctx.pwd_store.flash.read_jedec_id().unwrap();
-    write!(ctx, "\r\nFlash jedec id: {jedec_id:?}\r\n").ok();
+    write!(w, "\nFlash jedec id: {jedec_id:?}\n").ok();
 
-    let addr = if let Ok(Some(aa)) = menu::argument_finder(item, args, "addr") {
-        if let Some(a) = parse_num(ctx, aa) {
-            a
-        } else {
-            write!(ctx, "Could not parse addr: \"{aa}\".\r\n").ok();
-            return;
-        }
+    let addr = if let Some(a) = parse_num(w, addr_s) {
+        a
     } else {
-        write!(ctx, "Address not given.\r\n").ok();
+        writeln!(w, "Could not parse addr: \"{addr_s}\".").ok();
         return;
     };
     if addr % FLASH_BLOCK_SIZE != 0 {
-        write!(
-            ctx,
+        writeln!(
+            w,
             "Error: addr {addr} (0x{addr:x}) is not multiple of \
-            {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:02x}).\r\n",
+            {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:02x}).",
         )
         .ok();
         return;
     }
     if addr >= FLASH_SIZE {
-        write!(
-            ctx,
+        writeln!(
+            w,
             "Error: addr {addr} (0x{addr:x}) is larger than flash size \
-            {FLASH_SIZE} (0x{FLASH_SIZE:x}).\r\n",
+            {FLASH_SIZE} (0x{FLASH_SIZE:x}).",
         )
         .ok();
         return;
     }
 
     let mut len = FLASH_BLOCK_SIZE;
-    if let Ok(Some(al)) = menu::argument_finder(item, args, "len") {
-        if let Some(ret) = parse_num(ctx, al) {
+    if let Some(al) = len_s {
+        if let Some(ret) = parse_num(w, al) {
             len = ret;
         } else {
-            write!(ctx, "Could not parse len: \"{al}\".\r\n").ok();
+            writeln!(w, "Could not parse len: \"{al}\".").ok();
             return;
         }
     }
-    if len % FLASH_BLOCK_SIZE != 0 {
-        write!(
-            ctx,
+    if !len.is_multiple_of(FLASH_BLOCK_SIZE) {
+        writeln!(
+            w,
             "Error: len {len} (0x{len:x}) is not multiple of \
-            {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:x}).\r\n",
+            {FLASH_BLOCK_SIZE} (0x{FLASH_BLOCK_SIZE:x}).",
         )
         .ok();
         return;
     }
     if addr + len > FLASH_SIZE {
         let new_len = FLASH_SIZE - addr;
-        write!(
-            ctx,
+        writeln!(
+            w,
             "Warning: len {len} (0x{len:x}) reaches beyond flash size \
             {FLASH_SIZE} (0x{FLASH_SIZE:x}) and was trucated to \
-            {new_len} (0x{new_len:x}).\r\n",
+            {new_len} (0x{new_len:x}).",
         )
         .ok();
         len = new_len;
     }
 
     let sectors = len / FLASH_BLOCK_SIZE;
-    write!(
-        ctx,
-        "* Erasing {len} (0x{len:x}) bytes at 0x{addr:06x} in {sectors} sectors:\r\n",
+    writeln!(
+        w,
+        "* Erasing {len} (0x{len:x}) bytes at 0x{addr:06x} in {sectors} sectors:",
     )
     .ok();
 
     for c in 0..sectors {
         let mem_addr = addr + c * FLASH_BLOCK_SIZE;
         match ctx.pwd_store.flash.erase_sectors(mem_addr as u32, 1) {
-            Ok(w) => {
-                write!(ctx, "\r#e 0x{mem_addr:06x} #w {w}      ").ok();
+            Ok(wait) => {
+                write!(w, "\r#e 0x{mem_addr:06x} #w {wait}      ").ok();
             }
             Err(e) => {
                 write!(
-                    ctx,
-                    "\r\n### Flash erase failed at 0x{mem_addr:06x} ({e:?}) - abort.\r\n",
+                    w,
+                    "\n### Flash erase failed at 0x{mem_addr:06x} ({e:?}) - abort.\n",
                 )
                 .ok();
                 return;
@@ -634,7 +434,7 @@ fn cmd_flash_erase(
         // prevent hardware reset during lengthy flash ops
         ctx.pwd_store.watchdog.feed();
     }
-    write!(ctx, "\r\ndone.\r\n").ok();
+    write!(w, "\ndone.\n").ok();
 }
 
 // EOF

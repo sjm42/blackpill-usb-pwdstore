@@ -5,32 +5,28 @@ extern crate alloc;
 extern crate no_std_compat as std;
 
 use alloc::string::*;
+use alloc::vec::Vec;
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    XChaCha20Poly1305, XNonce,
+};
 use core::fmt;
 use no_std_compat::borrow::Cow;
-use privatebox::PrivateBox;
 use rand::{prelude::*, SeedableRng};
 use sha2::{Digest, Sha256};
-use spi_memory::{series25::Flash, BlockDevice, Read};
+use crate::spi_memory::{BlockDevice, Flash, Read};
 use std::prelude::v1::*;
 use std::str;
 
 use stm32f4xx_hal as hal;
 
+use hal::gpio::*;
+use hal::pac::{SPI1, TIM5};
+use hal::spi::*;
+use hal::timer;
 use hal::watchdog::IndependentWatchdog;
-use hal::{gpio::*, pac::SPI1, spi::*};
 
-type MyFlash = Flash<
-    Spi<
-        SPI1,
-        (
-            Pin<'A', 5, Alternate<5, PushPull>>,
-            Pin<'A', 6, Alternate<5, PushPull>>,
-            Pin<'A', 7, Alternate<5, PushPull>>,
-        ),
-        TransferModeNormal,
-    >,
-    ErasedPin<Output<PushPull>>,
->;
+type MyFlash = Flash<Spi<SPI1>, ErasedPin<Output<PushPull>>, timer::Delay<TIM5, 1_000_000>>;
 
 pub const FLASH_SIZE: usize = 8 * 1024 * 1024; // 8 MB
 pub const FLASH_BLOCK_SIZE: usize = 4096;
@@ -38,6 +34,9 @@ pub const FLASH_BLOCK_SIZE: usize = 4096;
 const ADDR_MASTER_KEY: u32 = 0x000000;
 const ADDR_MIN: u32 = FLASH_BLOCK_SIZE as u32;
 const ADDR_MAX: u32 = (FLASH_BLOCK_SIZE * 0x07FF) as u32;
+
+const KEY_SIZE: usize = 32;
+const NONCE_SIZE: usize = 24;
 
 const PWD_NAME_LEN: usize = 250;
 const PWD_DATA_LEN: usize = FLASH_BLOCK_SIZE - 6 - PWD_NAME_LEN;
@@ -65,8 +64,30 @@ struct ScanBuf {
 pub struct PwdStore {
     pub flash: MyFlash,
     pub watchdog: IndependentWatchdog,
-    pbox: Option<PrivateBox<StdRng>>,
+    cipher: Option<XChaCha20Poly1305>,
     rng: Option<StdRng>,
+}
+
+fn encrypt_blob(cipher: &XChaCha20Poly1305, rng: &mut StdRng, plaintext: &[u8]) -> Vec<u8> {
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    rng.fill_bytes(&mut nonce_bytes);
+    let nonce = XNonce::from_slice(&nonce_bytes);
+    let ct = cipher.encrypt(nonce, plaintext).unwrap();
+    let mut blob = Vec::with_capacity(NONCE_SIZE + ct.len());
+    blob.extend_from_slice(&nonce_bytes);
+    blob.extend_from_slice(&ct);
+    blob
+}
+
+fn decrypt_blob(
+    cipher: &XChaCha20Poly1305,
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, chacha20poly1305::aead::Error> {
+    if ciphertext.len() < NONCE_SIZE {
+        return Err(chacha20poly1305::aead::Error);
+    }
+    let nonce = XNonce::from_slice(&ciphertext[..NONCE_SIZE]);
+    cipher.decrypt(nonce, &ciphertext[NONCE_SIZE..])
 }
 
 impl PwdRepr {
@@ -239,7 +260,7 @@ impl PwdStore {
         Self {
             flash,
             watchdog,
-            pbox: None,
+            cipher: None,
             rng: None,
         }
     }
@@ -250,16 +271,16 @@ impl PwdStore {
     {
         write!(
             debug,
-            "*** {} ***\r\n\
-            Version: {}\r\n\
-            Source timestamp: {}\r\n\
-            Compiler: {}\r\n\
-            Status: {}\r\n",
+            "*** {} ***\n\
+            Version: {}\n\
+            Source timestamp: {}\n\
+            Compiler: {}\n\
+            Status: {}\n",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
             env!("SOURCE_TIMESTAMP"),
             env!("RUSTC_VERSION"),
-            if self.pbox.is_some() {
+            if self.cipher.is_some() {
                 "OPEN"
             } else {
                 "CLOSED"
@@ -281,7 +302,7 @@ impl PwdStore {
         D: Sized + fmt::Write,
     {
         // Create a new RNG seeded with master_pass and given seed (timestamp)
-        let mut master_seed = [0u8; privatebox::KEY_SIZE];
+        let mut master_seed = [0u8; KEY_SIZE];
         let mut seed_hasher = Sha256::new();
         seed_hasher.update(unsafe {
             ::core::slice::from_raw_parts((&seed as *const u64) as *const u8, 8)
@@ -291,27 +312,26 @@ impl PwdStore {
         let mut rng_master = StdRng::from_seed(master_seed);
 
         // Save another rng for later use
-        self.rng = Some(StdRng::from_rng(&mut rng_master).unwrap());
+        self.rng = Some(StdRng::from_rng(&mut rng_master));
 
         // Create sha2-256 hash from master_pass -- 32 bytes
-        let mut pass_hash = [0; privatebox::KEY_SIZE];
+        let mut pass_hash = [0; KEY_SIZE];
         let mut pass_hasher = Sha256::new();
         pass_hasher.update(master_pass.as_bytes());
         pass_hash.copy_from_slice(pass_hasher.finalize().as_slice());
 
         // Generate new master key, 32 bytes, 256 bits
-        let mut master_key = [0; privatebox::KEY_SIZE];
+        let mut master_key = [0; KEY_SIZE];
         rng_master.fill_bytes(&mut master_key);
 
-        // Make a new PrivateBox with the key, i.e. open the password store
-        let rng_runtime = StdRng::from_rng(&mut rng_master).unwrap();
-        let pb_runtime = PrivateBox::new(&master_key, rng_runtime);
-        self.pbox = Some(pb_runtime);
+        // Open the password store with the new master key
+        self.cipher = Some(
+            XChaCha20Poly1305::new_from_slice(&master_key).unwrap(),
+        );
 
         // Encrypt the master key using master_pass as encryption key
-        let mut pb_master = PrivateBox::new(&pass_hash, rng_master);
-        let master_enc = pb_master.encrypt(&master_key, &[], &[]).unwrap();
-        drop(pb_master);
+        let cipher_master = XChaCha20Poly1305::new_from_slice(&pass_hash).unwrap();
+        let master_enc = encrypt_blob(&cipher_master, &mut rng_master, &master_key);
 
         // Store the encrypted master key onto flash
         let mut flash_pwd =
@@ -320,9 +340,9 @@ impl PwdStore {
         self.flash
             .write_bytes(ADDR_MASTER_KEY, flash_pwd.bytes_mut())
             .unwrap();
-        write!(
+        writeln!(
             debug,
-            "New master key generated & saved successfully. Password store opened.\r\n"
+            "New master key generated & saved successfully. Password store opened."
         )
         .ok();
     }
@@ -331,12 +351,11 @@ impl PwdStore {
     where
         D: Sized + fmt::Write,
     {
-        let mut pass_hash = [0; privatebox::KEY_SIZE];
+        let mut pass_hash = [0; KEY_SIZE];
         let mut pass_hasher = Sha256::new();
         pass_hasher.update(master_pass.as_bytes());
         pass_hash.copy_from_slice(pass_hasher.finalize().as_slice());
-        let rng_master = StdRng::seed_from_u64(0);
-        let pb_master = PrivateBox::new(&pass_hash, rng_master);
+        let cipher_master = XChaCha20Poly1305::new_from_slice(&pass_hash).unwrap();
 
         let mut pwd_buf = PwdRepr::new(&[], &[], &[]).unwrap();
         self.flash
@@ -345,24 +364,23 @@ impl PwdStore {
         let pwd_crypted = match pwd_buf.get_password() {
             Some(d) => d,
             None => {
-                write!(debug, "No master key saved on flash.\r\n").ok();
+                writeln!(debug, "No master key saved on flash.").ok();
                 return;
             }
         };
 
-        let master_vec = match pb_master.decrypt(pwd_crypted, &[]) {
-            Ok((decr, _auth_h)) => decr,
+        let master_vec = match decrypt_blob(&cipher_master, pwd_crypted) {
+            Ok(decr) => decr,
             Err(e) => {
-                write!(debug, "Decrypt failed: {e:?}\r\n").ok();
+                writeln!(debug, "Decrypt failed: {e:?}").ok();
                 return;
             }
         };
-        drop(pb_master);
-        let mut master_key = [0; privatebox::KEY_SIZE];
+        let mut master_key = [0; KEY_SIZE];
         master_key.copy_from_slice(&master_vec);
 
-        // Create a new RNG seeded with master_pass and given seed
-        let mut runtime_seed = [0u8; privatebox::KEY_SIZE];
+        // Create a new RNG seeded with master_key and given seed
+        let mut runtime_seed = [0u8; KEY_SIZE];
         let mut seed_hasher = Sha256::new();
         seed_hasher.update(unsafe {
             ::core::slice::from_raw_parts((&seed as *const u64) as *const u8, 8)
@@ -372,13 +390,14 @@ impl PwdStore {
         let mut rng_runtime = StdRng::from_seed(runtime_seed);
 
         // Save another rng for later use
-        self.rng = Some(StdRng::from_rng(&mut rng_runtime).unwrap());
+        self.rng = Some(StdRng::from_rng(&mut rng_runtime));
 
-        let pb_runtime = PrivateBox::new(&master_key, rng_runtime);
-        self.pbox = Some(pb_runtime);
-        write!(
+        self.cipher = Some(
+            XChaCha20Poly1305::new_from_slice(&master_key).unwrap(),
+        );
+        writeln!(
             debug,
-            "Master key decrypted successfully. Password store opened.\r\n"
+            "Master key decrypted successfully. Password store opened."
         )
         .ok();
     }
@@ -387,31 +406,32 @@ impl PwdStore {
     where
         D: Sized + fmt::Write,
     {
-        self.pbox = None;
+        self.cipher = None;
         self.rng = None;
-        write!(debug, "Password store closed.\r\n").ok();
+        writeln!(debug, "Password store closed.").ok();
     }
 
     pub fn store<D>(&mut self, debug: &mut D, name: &str, username: &str, password: &str)
     where
         D: Sized + fmt::Write,
     {
-        let pbox = match &mut self.pbox {
+        let cipher = match &self.cipher {
             None => {
-                write!(debug, "Error: password store is not open.\r\n").ok();
+                writeln!(debug, "Error: password store is not open.").ok();
                 return;
             }
-            Some(pb) => pb,
+            Some(c) => c,
         };
+        let rng = self.rng.as_mut().unwrap();
 
         // encrypt
-        let encr_user = pbox.encrypt(username.as_bytes(), &[], &[]).unwrap();
-        let encr_pass = pbox.encrypt(password.as_bytes(), &[], &[]).unwrap();
+        let encr_user = encrypt_blob(cipher, rng, username.as_bytes());
+        let encr_pass = encrypt_blob(cipher, rng, password.as_bytes());
 
         let addr = match self.find_free(debug) {
             Some(a) => a,
             None => {
-                write!(debug, "Error: cannot find free location!\r\n").ok();
+                writeln!(debug, "Error: cannot find free location!").ok();
                 return;
             }
         };
@@ -419,7 +439,7 @@ impl PwdStore {
         let mut pwd = match PwdRepr::new(name.as_bytes(), &encr_user, &encr_pass) {
             Some(p) => p,
             None => {
-                write!(debug, "Encryption error: username+password too long.\r\n").ok();
+                writeln!(debug, "Encryption error: username+password too long.").ok();
                 return;
             }
         };
@@ -428,51 +448,50 @@ impl PwdStore {
         self.flash
             .write_bytes(addr as u32, pwd.bytes_mut())
             .unwrap();
-        write!(debug, "Stored to loc 0x{:03x}\r\n", addr / FLASH_BLOCK_SIZE).ok();
+        writeln!(debug, "Stored to loc 0x{:03x}", addr / FLASH_BLOCK_SIZE).ok();
     }
 
     pub fn fetch<D>(&mut self, debug: &mut D, loc: usize)
     where
         D: Sized + fmt::Write,
     {
-        let pbox = match &mut self.pbox {
+        let cipher = match &self.cipher {
             None => {
-                write!(debug, "Error: password store is not open.\r\n").ok();
+                writeln!(debug, "Error: password store is not open.").ok();
                 return;
             }
-            Some(pb) => pb,
+            Some(c) => c,
         };
 
         let addr = (FLASH_BLOCK_SIZE * loc) as u32;
         if !(ADDR_MIN..=ADDR_MAX).contains(&addr) {
-            write!(debug, "Error: illegal location.\r\n").ok();
+            writeln!(debug, "Error: illegal location.").ok();
             return;
         }
 
         let mut pwd_buf = PwdRepr::new(&[], &[], &[]).unwrap();
         self.flash.read(addr, pwd_buf.bytes_mut()).unwrap();
         if !pwd_buf.is_valid() {
-            write!(debug, "No valid data in this location.\r\n").ok();
+            writeln!(debug, "No valid data in this location.").ok();
             return;
         }
         let encr_user = pwd_buf.get_username().unwrap();
         let encr_pass = pwd_buf.get_password().unwrap();
 
         // decrypt it
-        let metadata = [];
-        let decr_user = match pbox.decrypt(encr_user, &metadata) {
+        let decr_user = match decrypt_blob(cipher, encr_user) {
             Err(e) => {
-                write!(debug, "Username decrypt failed: {e:?}\r\n").ok();
+                writeln!(debug, "Username decrypt failed: {e:?}").ok();
                 return;
             }
-            Ok((dec, _auth_h)) => dec,
+            Ok(dec) => dec,
         };
-        let decr_pass = match pbox.decrypt(encr_pass, &metadata) {
+        let decr_pass = match decrypt_blob(cipher, encr_pass) {
             Err(e) => {
-                write!(debug, "Password decrypt failed: {e:?}\r\n").ok();
+                writeln!(debug, "Password decrypt failed: {e:?}").ok();
                 return;
             }
-            Ok((dec, _auth_h)) => dec,
+            Ok(dec) => dec,
         };
 
         let name = pwd_buf.get_name_string().unwrap();
@@ -480,9 +499,9 @@ impl PwdStore {
         let str_pass = String::from_utf8_lossy(&decr_pass);
         write!(
             debug,
-            "name: {name}\r\n\
-            user: {str_user}\r\n\
-            pass: {str_pass}\r\n"
+            "name: {name}\n\
+            user: {str_user}\n\
+            pass: {str_pass}\n"
         )
         .ok();
     }
@@ -491,34 +510,34 @@ impl PwdStore {
     where
         D: Sized + fmt::Write,
     {
-        if self.pbox.is_none() {
-            write!(debug, "Error: password store is not open.\r\n").ok();
+        if self.cipher.is_none() {
+            writeln!(debug, "Error: password store is not open.").ok();
             return;
         }
 
         let addr = (FLASH_BLOCK_SIZE * loc) as u32;
         if !(ADDR_MIN..=ADDR_MAX).contains(&addr) {
-            write!(debug, "Error: illegal location.\r\n").ok();
+            writeln!(debug, "Error: illegal location.").ok();
             return;
         }
 
         let mut pwd_buf = PwdRepr::new(&[], &[], &[]).unwrap();
         self.flash.read(addr, pwd_buf.bytes_mut()).unwrap();
         if !pwd_buf.is_valid() {
-            write!(debug, "No valid data in this location.\r\n").ok();
+            writeln!(debug, "No valid data in this location.").ok();
             return;
         }
 
-        self.flash.erase_sectors(addr as u32, 1).unwrap();
-        write!(debug, "Dropped loc 0x{loc:03x}\r\n").ok();
+        self.flash.erase_sectors(addr, 1).unwrap();
+        writeln!(debug, "Dropped loc 0x{loc:03x}").ok();
     }
 
     pub fn scan<D>(&mut self, debug: &mut D)
     where
         D: Sized + fmt::Write,
     {
-        if self.pbox.is_none() {
-            write!(debug, "Error: password store is not open.\r\n").ok();
+        if self.cipher.is_none() {
+            writeln!(debug, "Error: password store is not open.").ok();
             return;
         }
 
@@ -532,7 +551,7 @@ impl PwdStore {
             }
 
             if let Err(e) = self.flash.read(addr as u32, scan_buf.bytes_mut()) {
-                write!(debug, "\r\n### Flash read error at 0x{addr:06x}: {e:?}\r\n",).ok();
+                write!(debug, "\n### Flash read error at 0x{addr:06x}: {e:?}\n",).ok();
                 continue;
             }
 
@@ -540,7 +559,7 @@ impl PwdStore {
                 let name = scan_buf.get_name_string().unwrap();
                 write!(
                     debug,
-                    "\r\n*** Password found at 0x{addr:06x}, encr {}+{} bytes, loc: 0x{i:03x} name: {}\r\n",
+                    "\n*** Password found at 0x{addr:06x}, encr {}+{} bytes, loc: 0x{i:03x} name: {}\n",
                     scan_buf.len_username,
                     scan_buf.len_password,
                     name.as_ref()
@@ -575,13 +594,12 @@ impl PwdStore {
         D: Sized + fmt::Write,
     {
         if self.rng.is_none() {
-            write!(debug, "Error: no RNG. Open password store first.\r\n").ok();
+            writeln!(debug, "Error: no RNG. Open password store first.").ok();
             return None;
         }
 
         let rand_loc =
-            self.rng.as_mut().unwrap().gen::<usize>() & (FLASH_SIZE / FLASH_BLOCK_SIZE - 1);
-        // write!(debug, "First rand loc: 0x{:03x}\r\n", rand_loc).ok();
+            self.rng.as_mut().unwrap().random_range(0..FLASH_SIZE / FLASH_BLOCK_SIZE);
         if let Some(addr) = self.find_free_from(debug, rand_loc * FLASH_BLOCK_SIZE) {
             return Some(addr);
         }
@@ -593,14 +611,14 @@ impl PwdStore {
     where
         D: Sized + fmt::Write,
     {
-        if self.pbox.is_none() {
-            write!(debug, "Error: password store is not open.\r\n").ok();
+        if self.cipher.is_none() {
+            writeln!(debug, "Error: password store is not open.").ok();
             return;
         }
 
-        write!(debug, "loc   name\r\n----------\r\n").ok();
+        write!(debug, "loc   name\n----------\n").ok();
         for (addr, name) in self {
-            write!(debug, "0x{:03x} {name}\r\n", addr / FLASH_BLOCK_SIZE).ok();
+            writeln!(debug, "0x{:03x} {name}", addr / FLASH_BLOCK_SIZE).ok();
         }
     }
 
@@ -608,8 +626,8 @@ impl PwdStore {
     where
         D: Sized + fmt::Write,
     {
-        if self.pbox.is_none() {
-            write!(debug, "Error: password store is not open.\r\n").ok();
+        if self.cipher.is_none() {
+            writeln!(debug, "Error: password store is not open.").ok();
             return;
         }
 
@@ -620,10 +638,10 @@ impl PwdStore {
             len => len,
         };
 
-        write!(debug, "loc   name\r\n----------\r\n").ok();
+        write!(debug, "loc   name\n----------\n").ok();
         for (addr, name) in self {
             if name.as_bytes().windows(len).any(|window| window == srch) {
-                write!(debug, "0x{:03x} {name}\r\n", addr / FLASH_BLOCK_SIZE).ok();
+                writeln!(debug, "0x{:03x} {name}", addr / FLASH_BLOCK_SIZE).ok();
             }
         }
     }

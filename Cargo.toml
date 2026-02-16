@@ -2,14 +2,14 @@
 
 [package]
 name = "blackpill-usb-pwdstore"
-version = "0.1.7"
+version = "0.2.0"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "USB Password Trove for BlackPill card (stm32f411)"
 repository = "https://github.com/sjm42/blackpill-usb-pwdstore"
 readme = "README.md"
 keywords = ["usb", "password", "embedded", "blackpill", "stm32"]
 license = "MIT OR Apache-2.0"
-edition = "2021"
+edition = "2024"
 
 
 [features]
@@ -19,36 +19,28 @@ black_pill = ["stm32f4xx-hal"]
 
 [dependencies.stm32f4xx-hal]
 optional = true
-version = "=0.16"
-features = ["rt", "stm32f411", "usb_fs"]
-# git = "https://github.com/stm32-rs/stm32f4xx-hal.git"
+version = "0.23"
+features = ["stm32f411", "usb_fs"]
 
 
 [dependencies]
 alloc-cortex-m = "0.4"
+bitflags = "2"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-cortex-m-rtic = "1.1"
-embedded-hal = "0.2"
-fugit = "0.3"
-menu = "0.3"
+rtic = { version = "2", features = ["thumbv7-backend"] }
+rtic-monotonics = { version = "2", features = ["cortex-m-systick"] }
+rtic-sync = "1"
+embedded-hal = "1"
+embedded-cli = "0.2"
+embedded-io = "0.6"
+panic-reset = "0.1"
 no-std-compat = { version = "0.4", features = ["alloc"] }
-panic-halt = "0.2"
-rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+rand = { version = "0.9", default-features = false, features = ["std_rng"] }
 sha2 = { version = "0.10", default-features = false }
-privatebox = "0.1"
-spi-memory = { git = "https://github.com/sjm42/spi-memory.git" }
-stm32-usbd = "0.6"
-systick-monotonic = "1.0"
-usb-device = "0.2"
-usbd-serial = "0.1"
-
-
-# this lets you use `cargo fix`!
-#[[bin]]
-#name = "blackpill-usb-pwdstore"
-#test = false
-#bench = false
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+usb-device = "0.3"
+usbd-serial = "0.2"
 
 # identical profiles haha
 
@@ -66,6 +58,7 @@ lto = true        # better optimizations
 
 
 [build-dependencies]
-build-data = "0.1"
+anyhow = "1"
+build-data = "0.3"
 
 # EOF

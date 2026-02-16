@@ -4,44 +4,37 @@
 #![no_main]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
-#![feature(alloc_error_handler)]
-#![feature(associated_type_bounds)]
 // #![deny(warnings)]
 
 extern crate alloc;
 extern crate no_std_compat as std;
 use blackpill_usb_pwdstore::*;
-use panic_halt as _;
+use panic_reset as _;
 
 use alloc_cortex_m::CortexMHeap;
-use core::alloc::Layout;
+
+use rtic_monotonics::systick::prelude::*;
+systick_monotonic!(Mono, 10_000);
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
-#[allow(clippy::empty_loop)]
-#[alloc_error_handler]
-fn oom(_: Layout) -> ! {
-    loop {}
-}
-
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true,
     dispatchers = [DMA2_STREAM2, DMA2_STREAM3, DMA2_STREAM4, DMA2_STREAM5, DMA2_STREAM6, DMA2_STREAM7])]
 mod app {
-    use blackpill_usb_pwdstore::*;
-
+    use super::*;
+    use blackpill_usb_pwdstore::spi_memory::Flash;
     use cortex_m::asm;
-    use spi_memory::series25::Flash;
-    use systick_monotonic::*;
+    use rtic_monotonics::fugit::ExtU32;
+    use rtic_sync::channel::{Receiver, Sender};
     use usb_device::prelude::*;
-
-    #[monotonic(binds=SysTick, default=true)]
-    type SysMono = Systick<10_000>; // 10 kHz / 100 µs granularity
 
     #[shared]
     struct Shared {
         usb_dev: UsbDevice<'static, UsbBusType>,
-        menu_runner: menu::Runner<'static, MyMenuCtx>,
+        cli: AppCli,
+        serial_access: SerialAccess,
+        app_ctx: AppCtx,
         ser_tx: SerialTx,
         addr: u32,
         pin_button: ErasedPin<Input>,
@@ -51,17 +44,25 @@ mod app {
     }
 
     #[local]
-    struct Local {}
+    struct Local {
+        feed_sender: Sender<'static, u8, 8>,
+        feed_receiver: Receiver<'static, u8, 8>,
+        led_sender_usb: Sender<'static, u32, 8>,
+        led_sender_btn: Sender<'static, u32, 8>,
+        led_receiver: Receiver<'static, u32, 8>,
+    }
 
-    static mut EP_MEMORY: [u32; 1024] = [0; 1024];
-
-    #[init]
-    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+    #[init(local = [
+        ep_memory: [u32; 1024] = [0; 1024],
+        usb_bus: Option<usb_device::bus::UsbBusAllocator<UsbBusType>> = None,
+        serial_port: Option<UsbdSerial> = None,
+        cmd_buf: [u8; 128] = [0; 128],
+        hist_buf: [u8; 128] = [0; 128],
+    ])]
+    fn init(cx: init::Context) -> (Shared, Local) {
         let start = cortex_m_rt::heap_start() as usize;
         let size = 32 * 1024; // in bytes
         unsafe { crate::ALLOCATOR.init(start, size) }
-
-        static mut USB_BUS: Option<usb_device::bus::UsbBusAllocator<UsbBusType>> = None;
 
         let dp = cx.device;
         let rcc = dp.RCC.constrain();
@@ -69,27 +70,26 @@ mod app {
         // Setup system clocks
         let hse = 25.MHz();
         let sysclk = 84.MHz();
-        let clocks = rcc
-            .cfgr
-            .use_hse(hse)
-            .sysclk(sysclk)
-            .require_pll48clk()
-            .freeze();
+        let mut rcc = rcc.freeze(
+            hal::rcc::Config::hse(hse)
+                .sysclk(sysclk)
+                .require_pll48clk(),
+        );
 
         // Initialize the monotonic
-        let mono = Systick::new(cx.core.SYST, clocks.sysclk().raw());
+        Mono::start(cx.core.SYST, rcc.clocks.sysclk().raw());
 
-        let mut syscfg = dp.SYSCFG.constrain();
-        let gpioa = dp.GPIOA.split();
-        let _gpiob = dp.GPIOB.split();
-        let gpioc = dp.GPIOC.split();
+        let mut syscfg = dp.SYSCFG.constrain(&mut rcc);
+        let gpioa = dp.GPIOA.split(&mut rcc);
+        let _gpiob = dp.GPIOB.split(&mut rcc);
+        let gpioc = dp.GPIOC.split(&mut rcc);
 
         let ser_tx_pin = gpioa.pa9.into_alternate::<7>();
         let _ser_rx_pin = gpioa.pa10.into_alternate::<7>();
 
         // default is 115200 bps, 8N1
         let ser_cfg = serial::config::Config::default().wordlength_8();
-        let mut ser_tx = serial::Serial::tx(dp.USART1, ser_tx_pin, ser_cfg, &clocks).unwrap();
+        let mut ser_tx = serial::Serial::tx(dp.USART1, ser_tx_pin, ser_cfg, &mut rcc).unwrap();
         write!(ser_tx, "\r\n\nStarting up...\r\n").ok();
 
         write!(ser_tx, "* Clocks:\r\n").ok();
@@ -101,23 +101,21 @@ mod app {
         write!(
             ser_tx,
             "  sysclk: {sysclk:?}\r\n  hclk: {hclk:?}\r\n",
-            sysclk = clocks.sysclk(),
-            hclk = clocks.hclk()
+            sysclk = rcc.clocks.sysclk(),
+            hclk = rcc.clocks.hclk()
         )
         .ok();
         write!(
             ser_tx,
             "  pclk1: {pclk1:?}\r\n  pclk2: {pclk2:?}\r\n",
-            pclk1 = clocks.pclk1(),
-            pclk2 = clocks.pclk2()
+            pclk1 = rcc.clocks.pclk1(),
+            pclk2 = rcc.clocks.pclk2()
         )
         .ok();
         write!(
             ser_tx,
-            "  pll48clk: {pll48clk:?}\r\n  ppre1: {ppre1:?}\r\n  ppre2: {ppre2:?}\r\n",
-            pll48clk = clocks.pll48clk(),
-            ppre1 = clocks.ppre1(),
-            ppre2 = clocks.ppre2()
+            "  pll48clk: {pll48clk:?}\r\n",
+            pll48clk = rcc.clocks.pll48clk(),
         )
         .ok();
 
@@ -149,18 +147,18 @@ mod app {
 
             Spi::new(
                 dp.SPI1,
-                (sck, miso, mosi),
+                (Some(sck), Some(miso), Some(mosi)),
                 Mode {
                     polarity: Polarity::IdleHigh,
                     phase: Phase::CaptureOnSecondTransition,
                 },
                 16.MHz(),
-                &clocks,
+                &mut rcc,
             )
         };
 
         // Create a delay abstraction based on general-purpose 32-bit timer TIM5
-        let delay = hal::timer::FTimerUs::new(dp.TIM5, &clocks).delay();
+        let delay = hal::timer::FTimerUs::new(dp.TIM5, &mut rcc).delay();
         let mut flash = Flash::init(spi, cs, delay).unwrap();
 
         // *** Begin USB setup ***
@@ -168,22 +166,28 @@ mod app {
             usb_global: dp.OTG_FS_GLOBAL,
             usb_device: dp.OTG_FS_DEVICE,
             usb_pwrclk: dp.OTG_FS_PWRCLK,
-            pin_dm: gpioa.pa11.into_alternate(),
-            pin_dp: gpioa.pa12.into_alternate(),
-            hclk: clocks.hclk(),
+            pin_dm: gpioa.pa11.into(),
+            pin_dp: gpioa.pa12.into(),
+            hclk: rcc.clocks.hclk(),
         };
-        unsafe {
-            USB_BUS.replace(UsbBus::new(usb, &mut EP_MEMORY));
-        }
 
-        let serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+        let usb_bus = cx.local.usb_bus;
+        usb_bus.replace(UsbBus::new(usb, cx.local.ep_memory));
+
+        // Create serial port in init-local for 'static lifetime
+        let serial_port = cx.local.serial_port;
+        *serial_port = Some(usbd_serial::SerialPort::new(usb_bus.as_ref().unwrap()));
+        let serial_ptr = serial_port.as_mut().unwrap() as *mut UsbdSerial;
+
         let usb_dev = UsbDeviceBuilder::new(
-            unsafe { USB_BUS.as_ref().unwrap() },
+            usb_bus.as_ref().unwrap(),
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Siuro Hacklab")
-        .product("Password Trove")
-        .serial_number("4242")
+        .strings(&[usb_device::device::StringDescriptors::default()
+            .manufacturer("Siuro Hacklab")
+            .product("Password Trove")
+            .serial_number("4242")])
+        .unwrap()
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
 
@@ -197,9 +201,17 @@ mod app {
 
         let pwd_store = PwdStore::new(flash, watchdog);
 
-        let menu_ctx = MyMenuCtx {
-            now: monotonics::now().ticks(),
-            serial: MyUsbSerial { serial },
+        // Build the embedded-cli
+        let cli_writer = CliWriter { serial: serial_ptr };
+        let cli = embedded_cli::cli::CliBuilder::default()
+            .writer(cli_writer)
+            .command_buffer(cx.local.cmd_buf.as_mut_slice())
+            .history_buffer(cx.local.hist_buf.as_mut_slice())
+            .build()
+            .unwrap();
+
+        let app_ctx = AppCtx {
+            now: Mono::now().ticks() as u64,
             pwd_store,
             init: InitState::Idle,
             open: OpenState::Idle,
@@ -212,16 +224,25 @@ mod app {
             idx3: 0,
             buf3: [0; NOECHO_BUF_SIZE],
         };
-        static mut MENU_BUF: [u8; 80] = [0u8; 80];
-        let menu_runner = menu::Runner::new(&ROOT_MENU, unsafe { &mut MENU_BUF }, menu_ctx);
 
-        // feed the watchdog
+        let serial_access = SerialAccess(serial_ptr);
+
+        // Create channels
+        let (feed_sender, feed_receiver) = rtic_sync::make_channel!(u8, 8);
+        let (led_sender, led_receiver) = rtic_sync::make_channel!(u32, 8);
+        let led_sender_btn = led_sender.clone();
+
+        // Spawn async looping tasks
         periodic::spawn().unwrap();
+        led_blink::spawn().unwrap();
+        feed_runner::spawn().unwrap();
 
         (
             Shared {
                 usb_dev,
-                menu_runner,
+                cli,
+                serial_access,
+                app_ctx,
                 ser_tx,
                 addr: 0,
                 pin_button,
@@ -229,8 +250,13 @@ mod app {
                 led_on: false,
                 button_down: false,
             },
-            Local {},
-            init::Monotonics(mono),
+            Local {
+                feed_sender,
+                feed_receiver,
+                led_sender_usb: led_sender,
+                led_sender_btn,
+                led_receiver,
+            },
         )
     }
 
@@ -244,90 +270,90 @@ mod app {
     }
 
     // Feed the watchdog to avoid hardware reset.
-    #[task(priority=1, shared=[menu_runner])]
-    fn periodic(cx: periodic::Context) {
-        let mut menu_runner = cx.shared.menu_runner;
-        menu_runner.lock(|menu_runner| {
-            menu_runner.context.pwd_store.watchdog.feed();
-        });
-        periodic::spawn_after(200u64.millis()).unwrap();
+    #[task(priority = 1, shared = [app_ctx])]
+    async fn periodic(mut cx: periodic::Context) {
+        loop {
+            cx.shared.app_ctx.lock(|ctx| {
+                ctx.pwd_store.watchdog.feed();
+            });
+            Mono::delay(200u32.millis()).await;
+        }
     }
 
-    #[task(priority=3, capacity=8, shared=[led_on, pin_led])]
-    fn led_blink(ctx: led_blink::Context, ms: u64) {
-        let led_blink::SharedResources {
-            mut led_on,
-            mut pin_led,
-        } = ctx.shared;
-
-        (&mut led_on, &mut pin_led).lock(|led_on, pin_led| {
-            if !(*led_on) {
-                pin_led.set_low();
-                *led_on = true;
-                led_off::spawn_after(ms.millis()).unwrap();
+    #[task(priority = 3, shared = [led_on, pin_led], local = [led_receiver])]
+    async fn led_blink(mut ctx: led_blink::Context) {
+        loop {
+            if let Ok(ms) = ctx.local.led_receiver.recv().await {
+                (&mut ctx.shared.led_on, &mut ctx.shared.pin_led).lock(|led_on, pin_led| {
+                    pin_led.set_low();
+                    *led_on = true;
+                });
+                Mono::delay(ms.millis()).await;
+                (&mut ctx.shared.led_on, &mut ctx.shared.pin_led).lock(|led_on, pin_led| {
+                    pin_led.set_high();
+                    *led_on = false;
+                });
             }
-        });
+        }
     }
 
-    #[task(priority=3, shared=[led_on, pin_led])]
-    fn led_off(ctx: led_off::Context) {
-        let led_off::SharedResources {
-            mut led_on,
-            mut pin_led,
-        } = ctx.shared;
-
-        (&mut led_on, &mut pin_led).lock(|led_on, pin_led| {
-            pin_led.set_high();
-            *led_on = false;
-        });
-    }
-
-    #[task(priority=4, binds=EXTI0, shared=[pin_button, button_down, menu_runner])]
+    #[task(priority = 4, binds = EXTI0, shared = [pin_button, button_down, cli, app_ctx], local = [led_sender_btn])]
     fn button(ctx: button::Context) {
+        let led_sender_btn = ctx.local.led_sender_btn;
+
         let button::SharedResources {
             mut pin_button,
             mut button_down,
-            mut menu_runner,
+            mut cli,
+            mut app_ctx,
+            ..
         } = ctx.shared;
 
         pin_button.lock(|button| button.clear_interrupt_pending_bit());
 
-        button_down.lock(|button_down| {
+        let debouncing = button_down.lock(|button_down| {
             if *button_down {
-                // debounce?
-                return;
+                return true;
             }
             *button_down = true;
+            false
         });
+        if debouncing {
+            return;
+        }
 
-        menu_runner.lock(|menu_runner| {
-            let ser = &mut menu_runner.context;
-            write!(ser, "\r\n# button #\r\n").ok();
+        (&mut cli, &mut app_ctx).lock(|cli, _ctx| {
+            let _ = cli.write(|writer| {
+                write!(writer, "\n# button #\n").ok();
+                Ok(())
+            });
         });
-        led_blink::spawn(500).unwrap();
+        led_sender_btn.try_send(500).ok();
 
         // disable button for 500ms (debounce)
-        button_up::spawn_after(500u64.millis()).unwrap();
+        button_debounce::spawn().ok();
     }
 
-    #[task(priority=3, shared=[button_down])]
-    fn button_up(ctx: button_up::Context) {
-        let button_up::SharedResources { mut button_down } = ctx.shared;
-        button_down.lock(|button_down| {
-            *button_down = false;
-        });
+    #[task(priority = 3, shared = [button_down])]
+    async fn button_debounce(mut ctx: button_debounce::Context) {
+        Mono::delay(500u32.millis()).await;
+        ctx.shared.button_down.lock(|bd| *bd = false);
     }
 
-    #[task(priority=5, binds=OTG_FS, shared=[usb_dev, menu_runner])]
+    #[task(priority = 5, binds = OTG_FS, shared = [usb_dev, serial_access, app_ctx], local = [feed_sender, led_sender_usb])]
     fn usb_fs(cx: usb_fs::Context) {
+        let feed_sender = cx.local.feed_sender;
+        let led_sender_usb = cx.local.led_sender_usb;
+
         let usb_fs::SharedResources {
             mut usb_dev,
-            mut menu_runner,
+            mut serial_access,
+            mut app_ctx,
+            ..
         } = cx.shared;
 
-        (&mut usb_dev, &mut menu_runner).lock(|usb_dev, menu_runner| {
-            let ctx = &mut menu_runner.context;
-            let serial = &mut ctx.serial.serial;
+        (&mut usb_dev, &mut serial_access, &mut app_ctx).lock(|usb_dev, sa, ctx| {
+            let serial = unsafe { &mut *sa.0 };
 
             if !usb_dev.poll(&mut [serial]) {
                 return;
@@ -412,76 +438,93 @@ mod app {
                         }
                     } else {
                         // keep runner at lower priority
-                        feed_runner::spawn(*c).unwrap();
+                        feed_sender.try_send(*c).ok();
                     }
                 }
             }
         });
 
-        menu_runner.lock(|menu_runner| {
-            menu_runner.context.pwd_store.watchdog.feed();
+        app_ctx.lock(|ctx| {
+            ctx.pwd_store.watchdog.feed();
         });
 
-        led_blink::spawn(10).unwrap();
+        led_sender_usb.try_send(10).ok();
     }
 
-    #[task(priority=2, capacity=5, shared=[menu_runner])]
-    fn feed_runner(ctx: feed_runner::Context, c: u8) {
-        let feed_runner::SharedResources { mut menu_runner } = ctx.shared;
-
-        menu_runner.lock(|menu_runner| {
-            menu_runner.context.now = monotonics::now().ticks();
-            menu_runner.input_byte(c);
-        });
+    #[task(priority = 2, shared = [cli, app_ctx], local = [feed_receiver])]
+    async fn feed_runner(mut ctx: feed_runner::Context) {
+        loop {
+            if let Ok(c) = ctx.local.feed_receiver.recv().await {
+                (&mut ctx.shared.cli, &mut ctx.shared.app_ctx).lock(|cli, app_ctx| {
+                    app_ctx.now = Mono::now().ticks() as u64;
+                    process_cli_byte(cli, app_ctx, c);
+                });
+            }
+        }
     }
 
-    #[task(priority=2, shared=[menu_runner])]
-    fn task_init(ctx: task_init::Context) {
-        let task_init::SharedResources { mut menu_runner } = ctx.shared;
+    #[task(priority = 2, shared = [cli, app_ctx])]
+    async fn task_init(ctx: task_init::Context) {
+        let task_init::SharedResources {
+            mut cli,
+            mut app_ctx,
+            ..
+        } = ctx.shared;
 
-        menu_runner.lock(|menu_runner| {
-            let ctx = &mut menu_runner.context;
+        (&mut cli, &mut app_ctx).lock(|cli, ctx| {
             let pass1 = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             let pass2 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
-            if pass1 != pass2 {
-                write!(ctx, "Error: passwords are not equal.\r\n").ok();
-                return;
-            }
-            ctx.pwd_store
-                .init(&mut ctx.serial, &pass1, monotonics::now().ticks());
-            menu_runner.prompt(true);
+            let _ = cli.write(|writer| {
+                if pass1 != pass2 {
+                    writeln!(writer, "Error: passwords are not equal.").ok();
+                } else {
+                    ctx.pwd_store
+                        .init(writer, &pass1, Mono::now().ticks() as u64);
+                }
+                Ok(())
+            });
         });
     }
 
-    #[task(priority=2, shared=[menu_runner])]
-    fn task_open(ctx: task_open::Context) {
-        let task_open::SharedResources { mut menu_runner } = ctx.shared;
+    #[task(priority = 2, shared = [cli, app_ctx])]
+    async fn task_open(ctx: task_open::Context) {
+        let task_open::SharedResources {
+            mut cli,
+            mut app_ctx,
+            ..
+        } = ctx.shared;
 
-        menu_runner.lock(|menu_runner| {
-            let ctx = &mut menu_runner.context;
+        (&mut cli, &mut app_ctx).lock(|cli, ctx| {
             let pass = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
-            ctx.pwd_store
-                .open(&mut ctx.serial, &pass, monotonics::now().ticks());
-            menu_runner.prompt(true);
+            let _ = cli.write(|writer| {
+                ctx.pwd_store
+                    .open(writer, &pass, Mono::now().ticks() as u64);
+                Ok(())
+            });
         });
     }
 
-    #[task(priority=2, shared=[menu_runner])]
-    fn task_store(ctx: task_store::Context) {
-        let task_store::SharedResources { mut menu_runner } = ctx.shared;
+    #[task(priority = 2, shared = [cli, app_ctx])]
+    async fn task_store(ctx: task_store::Context) {
+        let task_store::SharedResources {
+            mut cli,
+            mut app_ctx,
+            ..
+        } = ctx.shared;
 
-        menu_runner.lock(|menu_runner| {
-            let ctx = &mut menu_runner.context;
+        (&mut cli, &mut app_ctx).lock(|cli, ctx| {
             let name = ctx.opt_str.take().unwrap();
             let user = String::from_utf8_lossy(&ctx.buf1[..ctx.idx1]).to_string();
             let pass1 = String::from_utf8_lossy(&ctx.buf2[..ctx.idx2]).to_string();
             let pass2 = String::from_utf8_lossy(&ctx.buf3[..ctx.idx3]).to_string();
-            if pass1 != pass2 {
-                write!(ctx, "Error: passwords are not equal.\r\n").ok();
-                return;
-            }
-            ctx.pwd_store.store(&mut ctx.serial, &name, &user, &pass1);
-            menu_runner.prompt(true);
+            let _ = cli.write(|writer| {
+                if pass1 != pass2 {
+                    writeln!(writer, "Error: passwords are not equal.").ok();
+                } else {
+                    ctx.pwd_store.store(writer, &name, &user, &pass1);
+                }
+                Ok(())
+            });
         });
     }
 }

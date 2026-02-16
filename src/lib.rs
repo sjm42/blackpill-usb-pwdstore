@@ -15,6 +15,8 @@ pub use hal::prelude::*;
 pub use hal::watchdog::IndependentWatchdog;
 pub use hal::{gpio::*, pac::USART1, serial, spi::*};
 
+pub mod spi_memory;
+
 pub mod pwdstore;
 pub use pwdstore::*;
 
@@ -45,22 +47,41 @@ pub enum StoreState {
     AskPass2,
 }
 
-pub struct MyUsbSerial {
-    pub serial: UsbdSerial,
+/// Writer that sends bytes to USB serial via raw pointer.
+/// RTIC priority locking guarantees exclusive access.
+pub struct CliWriter {
+    pub serial: *mut UsbdSerial,
+}
+unsafe impl Send for CliWriter {}
+
+impl embedded_io::ErrorType for CliWriter {
+    type Error = core::convert::Infallible;
 }
 
-impl fmt::Write for MyUsbSerial {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        s.bytes()
-            .try_for_each(|c| {
-                if c == b'\n' {
-                    self.serial.write(&[b'\r'])?;
-                }
-                self.serial.write(&[c]).map(|_| ())
-            })
-            .map_err(|_| fmt::Error)
+impl embedded_io::Write for CliWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let serial = unsafe { &mut *self.serial };
+        for &b in buf {
+            let _ = serial.write(&[b]);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
+
+/// Raw pointer wrapper for USB handler to access serial port
+pub struct SerialAccess(pub *mut UsbdSerial);
+unsafe impl Send for SerialAccess {}
+
+/// Type alias for the CLI
+pub type AppCli = embedded_cli::cli::Cli<
+    CliWriter,
+    core::convert::Infallible,
+    &'static mut [u8],
+    &'static mut [u8],
+>;
 
 const ROW_SZ: usize = 0x40; // 64
 pub fn hex_dump<O>(output: &mut O, addr: usize, buf: &[u8])
@@ -70,13 +91,13 @@ where
     for (i, c) in buf.iter().enumerate() {
         if i % ROW_SZ == 0 {
             if i > 0 {
-                write!(output, "\r\n").ok();
+                writeln!(output).ok();
             }
             write!(output, "#{:06x} ", addr + i).ok();
         }
         write!(output, "{c:02x} ").ok();
     }
-    write!(output, "\r\n").ok();
+    writeln!(output).ok();
 }
 
 // EOF

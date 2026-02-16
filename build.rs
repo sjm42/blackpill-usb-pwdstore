@@ -13,12 +13,12 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-fn main() {
-    build_data::set_GIT_BRANCH();
-    build_data::set_GIT_COMMIT();
-    build_data::set_SOURCE_TIMESTAMP();
-    build_data::set_RUSTC_VERSION();
-    build_data::no_debug_rebuilds();
+fn main() -> anyhow::Result<()> {
+    let _ = build_data::set_GIT_BRANCH();
+    let _ = build_data::set_GIT_COMMIT();
+    let _ = build_data::set_SOURCE_TIMESTAMP();
+    let _ = build_data::set_RUSTC_VERSION();
+    let _ = build_data::no_debug_rebuilds();
 
     let mut memory_x = include_bytes!("memory.x").to_vec();
     if let Some(_feature) = env::var_os("CARGO_FEATURE_BLUE_PILL") {
@@ -45,4 +45,5 @@ fn main() {
     // here, we ensure the build script is only re-run when
     // `memory.x` is changed.
     println!("cargo:rerun-if-changed=memory.x");
+    Ok(())
 }
